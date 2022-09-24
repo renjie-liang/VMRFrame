@@ -1,0 +1,1 @@
+python main.py --config ./config/charades/main_c3dFT.json
