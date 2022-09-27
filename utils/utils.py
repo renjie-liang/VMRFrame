@@ -105,7 +105,7 @@ def build_optimizer_and_scheduler(model, configs):
         {'params': [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
          'weight_decay': 0.01},
         {'params': [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}]
-    optimizer = torch.optim.AdamW(optimizer_grouped_parameters, lr=configs.train.optimizer.lr)
+    optimizer = torch.optim.AdamW(optimizer_grouped_parameters, lr=configs.train.lr)
     scheduler = get_linear_schedule_with_warmup(optimizer, configs.train.num_train_steps * configs.train.warmup_proportion,
                                                 configs.train.num_train_steps)
     return optimizer, scheduler

@@ -1,31 +1,26 @@
+from distutils.command.config import config
 import os
 import argparse
-from tqdm import tqdm
 import torch
+from torch import nn
+
+import numpy as np
+from easydict import EasyDict
+from tqdm import tqdm
+
 from models.model import SeqPAN
 from models.loss import lossfun_match, lossfun_loc, infer, append_ious, get_i345_mi
 from utils.data_gen import load_dataset
-# from utils.data_loader import TrainLoader, TestLoader, TrainNoSuffleLoader
-from utils.data_utils import load_video_features #load_json, save_json, 
-# from utils.runner_utils import eval_test_save, get_feed_dict, write_tf_summary, set_tf_config, eval_test
-from datetime import datetime
+from utils.data_utils import load_video_features
 from utils.utils import load_json, set_seed_config, build_optimizer_and_scheduler, plot_labels, AverageMeter, get_logger
 from utils.data_loader import get_loader
-import torch.nn.functional as F
-from torch import nn
-import numpy as np
-
-from easydict import EasyDict
 
 def parse_args():
     parser = argparse.ArgumentParser()
-
     parser.add_argument('--config', type=str, default=None, required=True, help='config file path')
     parser.add_argument('--checkpoint', type=str, default=None, help='checkpoint path to resume')
     parser.add_argument('--eval', action='store_true', help='only evaluate')
-    # parser.add_argument('--log_dir', default=None, type=str, help='log file save path')
-    # parser.add_argument('--suffix', default='base', type=str, help='')
-    parser.add_argument('--suffix', type=str, default='', help='saved checkpoint suffix')
+    parser.add_argument('--suffix', type=str, default='', help='task suffix')
     parser.add_argument('--seed', default=42, type=int, help='random seed')
     return parser.parse_args()
 
@@ -36,29 +31,22 @@ configs['suffix'] = args.suffix
 
 set_seed_config(args.seed)
 dataset = load_dataset(configs)
-
 configs.num_chars = dataset['n_chars']
 configs.num_words = dataset['n_words']
 
 # get train and test loader
-print(configs.task)
 visual_features = load_video_features(configs.dataset.feature_path, configs.max_pos_len)
-
-# train_loader = TrainLoader(dataset=dataset['train_set'], visual_features=visual_features, configs=configs)
-# test_loader = TestLoader(datasets=dataset, visual_features=visual_features, configs=configs)
-# train_nosuffle_loader = TrainNoSuffleLoader(datasets=dataset['train_set'], visual_features=visual_features, configs=configs)
-
 train_loader = get_loader(dataset=dataset['train_set'], video_features=visual_features, configs=configs, loadertype="train")
 test_loader = get_loader(dataset=dataset['test_set'], video_features=visual_features, configs=configs, loadertype="test")
-# val_loader = None if dataset['val_set'] is None else get_test_loader(dataset['val_set'], visual_features, configs)
-# test_loader = get_test_loader(dataset=dataset['test_set'], video_features=visual_features, configs=configs)
-# train_nosuffle_loader = get_test_loader(dataset=dataset['train_set'], video_features=visual_features, configs=configs)
+# train_nosuffle_loader = get_loader(dataset=dataset['train_set'], video_features=visual_features, configs=configs, loadertype="test")
 configs.train.num_train_steps = len(train_loader) * configs.train.epochs
 
 
 model_dir = os.path.join(configs.model_dir, "{}_{}".format(configs.task, configs.suffix))
 os.makedirs(model_dir, exist_ok=True)
 device = ("cuda" if torch.cuda.is_available() else "cpu" )
+configs.device = device
+
 
 def build_load_model(configs, word_vector):
     model = SeqPAN(configs, word_vector)
@@ -73,8 +61,8 @@ def build_load_model(configs, word_vector):
 
 # init logger and meter
 logger = get_logger(model_dir, "eval")
-logger.info(configs)
 logger.info(args)
+logger.info(configs)
 lossmeter = AverageMeter()
 
 # train and test
@@ -82,6 +70,10 @@ if not args.eval:
 
     # build model
     model = build_load_model(configs, dataset['word_vector'])
+    for m in model.modules():
+        if isinstance(m, (nn.Conv2d, nn.Linear)):
+            nn.init.xavier_uniform_(m.weight)
+
     optimizer, scheduler = build_optimizer_and_scheduler(model, configs=configs)
     best_r1i7, global_step, mi_val_best = -1.0, 0, 0
     for epoch in range(configs.train.epochs):
@@ -92,8 +84,6 @@ if not args.eval:
 
         for data in tbar:
             records, vfeats, vmask, word_ids, char_ids, tmask, s_labels, e_labels, m_labels = data
-            # plot_labels(s_labels, e_labels, m_labels, "SeqPAN")
-            # plot_labels(s_labels, e_labels, m_labels, "VSL")
             
             # prepare features
             vfeats, vmask = vfeats.to(device), vmask.to(device) ### move_to_cuda
