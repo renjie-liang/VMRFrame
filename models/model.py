@@ -3,6 +3,8 @@ import torch.nn as nn
 from models.layers import Embedding, VisualProjection, FeatureEncoder, CQAttention, CQConcatenate, Conv1D, SeqPANPredictor
 from models.layers import DualAttentionBlock
 import torch.nn.functional as F
+import numpy as np
+
 class SeqPAN(nn.Module):
     def __init__(self, configs, word_vectors):
         super(SeqPAN, self).__init__()
@@ -37,10 +39,14 @@ class SeqPAN(nn.Module):
         self.v2q_attn = CQAttention(dim=dim, droprate=droprate)
         self.cq_cat = CQConcatenate(dim=dim)
         self.match_conv1d = Conv1D(in_dim=dim, out_dim=4)
-        self.label_embs = torch.empty(size=[dim, 4], dtype=torch.float32)
-        self.label_embs = torch.nn.init.orthogonal_(self.label_embs.data)
 
+        lable_emb = torch.empty(size=[dim, 4], dtype=torch.float32)
+        lable_emb = torch.nn.init.orthogonal_(lable_emb.data)
+        self.label_embs = nn.Parameter(lable_emb, requires_grad=True)
+        
         self.predictor = SeqPANPredictor(configs)
+
+
 
     def forward(self, word_ids, char_ids, vfeat_in, vmask, tmask):
         B = vmask.shape[0]
@@ -48,8 +54,12 @@ class SeqPAN(nn.Module):
         tfeat = self.text_encoder(word_ids, char_ids)
         vfeat = self.video_affine(vfeat_in)
 
+        # tmp1 = vfeat
+        # tmp2 = tfeat
+        
         vfeat = self.feat_encoder(vfeat)
         tfeat = self.feat_encoder(tfeat)
+
 
         vfeat_ = self.dual_attention_block_1(vfeat, tfeat, vmask, tmask)
         tfeat_ = self.dual_attention_block_1(tfeat, vfeat, tmask, vmask)
@@ -62,19 +72,27 @@ class SeqPAN(nn.Module):
         vfeat = vfeat_
         tfeat = tfeat_
 
+
         t2v_feat = self.q2v_attn(vfeat, tfeat, vmask, tmask)
         v2t_feat = self.v2q_attn(tfeat, vfeat, tmask, vmask)
         
         fuse_feat = self.cq_cat(t2v_feat, v2t_feat, tmask)
 
-
         match_logits = self.match_conv1d(fuse_feat)
+
+
         match_score = F.gumbel_softmax(match_logits, tau=0.3)
         match_probs =torch.log(match_score)
 
-        self.label_embs = self.label_embs.to(vmask.device)
+
+
         soft_label_embs = torch.matmul(match_score, torch.tile(self.label_embs, (B, 1, 1)).permute(0, 2, 1))
 
         fuse_feat = (fuse_feat + soft_label_embs) * vmask.unsqueeze(2)
         start_logits, end_logits = self.predictor(fuse_feat, vmask)
+
+        # print(tmp1, tmp2)
+        # print(tmp1.shape, tmp2.shape)
+        # print(torch.max(tmp1), torch.max(tmp2))
+        # print(torch.min(tmp1), torch.min(tmp2))
         return start_logits, end_logits, match_probs, self.label_embs

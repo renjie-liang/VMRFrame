@@ -16,13 +16,13 @@
       "lr": 1e-3,
       "warmup_proportion": 0.05,
       "batch_size": 128,
-      "epochs": 30,
+      "epochs": 50,
       "clip_norm": 1.0
       },
     "model": {
       "name": "SeqPAN",
       "video_feature_dim": 1024,
-      "dim": 64,
+      "dim": 128,
       "num_heads": 4,
       "word_dim": 300,
       "char_dim": 100,

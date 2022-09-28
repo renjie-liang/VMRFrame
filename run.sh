@@ -1,1 +1,1 @@
-python main.py --config ./config/charades/main_c3dFT.json
+CUDA_VISIBLE_DEVICES=0,1 python main.py --config ./config/charades/main_c3dFT.json

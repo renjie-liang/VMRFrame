@@ -146,6 +146,39 @@ class DepthwiseSeparableConvBlock(nn.Module):
         return output
 
 
+
+class SeparableConv2d(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, bias=False):
+        super(SeparableConv2d, self).__init__()
+        self.depthwise = nn.Conv2d(in_channels, in_channels, kernel_size=kernel_size, 
+                                groups=in_channels, bias=bias, padding=1)
+        self.pointwise = nn.Conv2d(in_channels, out_channels, 
+                                kernel_size=1, bias=bias)
+
+    def forward(self, x):
+        out = self.depthwise(x)
+        out = self.pointwise(out)
+        return out
+
+class DepthwiseSeparableConvBlock2(nn.Module):
+    def __init__(self, dim, kernel_size, droprate, num_layers=4):
+        super(DepthwiseSeparableConvBlock2, self).__init__()
+        self.depthwise_separable_conv = nn.ModuleList([
+            nn.Sequential(
+                nn.LayerNorm(dim, eps=1e-6),
+                SeparableConv2d(in_channels=dim, out_channels=dim, kernel_size=kernel_size, bias=True),
+                nn.ReLU(),
+            ) for _ in range(num_layers)])
+        self.dropout = nn.Dropout(p=droprate)
+
+    def forward(self, x):
+        output = x.unsqueeze(2)  # (batch_size, seq_len, dim)
+        for conv_layer in self.depthwise_separable_conv:
+            residual = output
+            output = conv_layer(output)
+            output = self.dropout(output) + residual
+        return output.squeeze(2)
+
 class MultiHeadAttentionBlock(nn.Module):
     def __init__(self, dim, num_heads, droprate):
         super(MultiHeadAttentionBlock, self).__init__()
@@ -349,27 +382,17 @@ class DualMultiAttention(nn.Module):
 
 
 
-
-
-
-
-
-
-
-
-
 class FeatureEncoder(nn.Module):
     def __init__(self, dim, max_pos_len, kernel_size=7, num_layers=4, droprate=0.0):
         super(FeatureEncoder, self).__init__()
         self.pos_embedding = PositionalEmbedding(num_embeddings=max_pos_len, embedding_dim=dim)
         self.conv_block = DepthwiseSeparableConvBlock(dim=dim, kernel_size=kernel_size, droprate=droprate,
                                                       num_layers=num_layers)
-
+                                                      
 
     def forward(self, x):
         features = x + self.pos_embedding(x)  # (batch_size, seq_len, dim)
         features = self.conv_block(features)  # (batch_size, seq_len, dim)
-        # features = self.attention_block(features, mask=mask)  # (batch_size, seq_len, dim)
         return features
 
 

@@ -14,6 +14,7 @@ from utils.data_gen import load_dataset
 from utils.data_utils import load_video_features
 from utils.utils import load_json, set_seed_config, build_optimizer_and_scheduler, plot_labels, AverageMeter, get_logger
 from utils.data_loader import get_loader
+torch.set_printoptions(precision=4, sci_mode=False)
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -21,7 +22,7 @@ def parse_args():
     parser.add_argument('--checkpoint', type=str, default=None, help='checkpoint path to resume')
     parser.add_argument('--eval', action='store_true', help='only evaluate')
     parser.add_argument('--suffix', type=str, default='', help='task suffix')
-    parser.add_argument('--seed', default=42, type=int, help='random seed')
+    parser.add_argument('--seed', default=1234, type=int, help='random seed')
     return parser.parse_args()
 
 
@@ -47,7 +48,6 @@ os.makedirs(model_dir, exist_ok=True)
 device = ("cuda" if torch.cuda.is_available() else "cpu" )
 configs.device = device
 
-
 def build_load_model(configs, word_vector):
     model = SeqPAN(configs, word_vector)
     if torch.cuda.device_count() > 1:
@@ -67,7 +67,6 @@ lossmeter = AverageMeter()
 
 # train and test
 if not args.eval:
-
     # build model
     model = build_load_model(configs, dataset['word_vector'])
     for m in model.modules():
@@ -81,7 +80,6 @@ if not args.eval:
         lossmeter.reset()
         tbar = tqdm(train_loader)
         ious = []
-
         for data in tbar:
             records, vfeats, vmask, word_ids, char_ids, tmask, s_labels, e_labels, m_labels = data
             
