@@ -6,9 +6,27 @@ from utils.utils import calculate_iou, calculate_iou_accuracy
 import numpy as np
 
 
-def lossfun_match(m_probs, label_embs, m_labels, vmask):
+# def lossfun_match(m_probs, label_embs, m_labels, vmask):
     
-    ## cross_entropy????
+#     ## cross_entropy????
+#     m_labels = F.one_hot(m_labels)
+#     loss_per_sample = -torch.sum(m_labels * m_probs, dim=-1)
+#     m_loss =torch.sum(loss_per_sample * vmask, dim=-1) / (torch.sum(vmask, dim=-1) + 1e-12)
+#     m_loss = m_loss.mean()
+    
+#     # add punishment
+#     ortho_constraint = torch.matmul(label_embs.T, label_embs) * (1.0 - torch.eye(4, device=label_embs.device, dtype=torch.float32))
+#     ortho_constraint = torch.norm(ortho_constraint, p=2)  # compute l2 norm as loss
+#     m_loss += ortho_constraint
+
+#     return m_loss
+
+def lossfun_match(m_probs, label_embs, m_labels, vmask):
+    # NLLLoss
+    # loss_fun = nn.NLLLoss()
+    loss_fun = nn.CrossEntropyLoss()
+    m_loss = loss_fun(m_probs.transpose(1,2), m_labels)
+
     m_labels = F.one_hot(m_labels)
     loss_per_sample = -torch.sum(m_labels * m_probs, dim=-1)
     m_loss =torch.sum(loss_per_sample * vmask, dim=-1) / (torch.sum(vmask, dim=-1) + 1e-12)
@@ -18,7 +36,6 @@ def lossfun_match(m_probs, label_embs, m_labels, vmask):
     ortho_constraint = torch.matmul(label_embs.T, label_embs) * (1.0 - torch.eye(4, device=label_embs.device, dtype=torch.float32))
     ortho_constraint = torch.norm(ortho_constraint, p=2)  # compute l2 norm as loss
     m_loss += ortho_constraint
-
     return m_loss
 
 def lossfun_loc(start_logits, end_logits, s_labels, e_labels, vmask):
@@ -45,9 +62,9 @@ def infer(start_logits, end_logits, vmask):
     _, start_index = torch.max(torch.max(outer, dim=2)[0], dim=1)  # (batch_size, )
     _, end_index = torch.max(torch.max(outer, dim=1)[0], dim=1)  # (batch_size, )
     
-    start_index = (start_index/L).cpu().numpy()
-    end_index = (end_index/L).cpu().numpy()
-    return start_index, end_index
+    start_frac = (start_index/vmask.sum(dim=1)).cpu().numpy()
+    end_frac = (end_index/vmask.sum(dim=1)).cpu().numpy()
+    return start_frac, end_frac
 
 
 def append_ious(ious, records, start_fracs, end_fracs):

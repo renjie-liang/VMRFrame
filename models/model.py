@@ -1,10 +1,11 @@
 import torch
 import torch.nn as nn
-from models.layers import Embedding, VisualProjection, FeatureEncoder, CQAttention, CQConcatenate, Conv1D, SeqPANPredictor
-from models.layers import DualAttentionBlock
+
 import torch.nn.functional as F
 import numpy as np
 
+from models.layers import Embedding, VisualProjection, FeatureEncoder, CQAttention, CQConcatenate, Conv1D, SeqPANPredictor
+from models.layers import DualAttentionBlock
 class SeqPAN(nn.Module):
     def __init__(self, configs, word_vectors):
         super(SeqPAN, self).__init__()
@@ -79,15 +80,9 @@ class SeqPAN(nn.Module):
         fuse_feat = self.cq_cat(t2v_feat, v2t_feat, tmask)
 
         match_logits = self.match_conv1d(fuse_feat)
-
-
         match_score = F.gumbel_softmax(match_logits, tau=0.3)
         match_probs =torch.log(match_score)
-
-
-
         soft_label_embs = torch.matmul(match_score, torch.tile(self.label_embs, (B, 1, 1)).permute(0, 2, 1))
-
         fuse_feat = (fuse_feat + soft_label_embs) * vmask.unsqueeze(2)
         start_logits, end_logits = self.predictor(fuse_feat, vmask)
 
@@ -95,4 +90,54 @@ class SeqPAN(nn.Module):
         # print(tmp1.shape, tmp2.shape)
         # print(torch.max(tmp1), torch.max(tmp2))
         # print(torch.min(tmp1), torch.min(tmp2))
-        return start_logits, end_logits, match_probs, self.label_embs
+        return start_logits, end_logits, match_score, self.label_embs
+
+
+
+
+# from models.layers_vsl import *
+# class VSLNet(nn.Module):
+#     def __init__(self, configs, word_vectors):
+#         super(VSLNet, self).__init__()
+#         self.configs = configs
+#         self.embedding_net = Embedding(num_words=configs.num_words, num_chars=configs.num_chars, out_dim=configs.model.dim,
+#                                        word_dim=configs.model.word_dim, char_dim=configs.model.char_dim, 
+#                                        word_vectors=word_vectors,
+#                                        drop_rate=configs.droprate)
+
+
+
+#         self.video_affine = VisualProjection(visual_dim=configs.model.video_feature_dim, dim=configs.model.dim,
+#                                              drop_rate=configs.droprate)
+#         self.feature_encoder = FeatureEncoder(dim=configs.dim, num_heads=configs.model.num_heads, kernel_size=7, num_layers=4,
+#                                               max_pos_len=configs.max_pos_len, drop_rate=configs.drop_rate)
+
+                                              
+#         self.cq_attention = CQAttention(dim=configs.dim, drop_rate=configs.drop_rate)
+#         self.cq_concat = CQConcatenate(dim=configs.dim)
+#         self.highlight_layer = HighLightLayer(dim=configs.dim)
+#         self.predictor = ConditionedPredictor(dim=configs.dim, num_heads=configs.model.num_heads, drop_rate=configs.drop_rate,
+#                                               max_pos_len=configs.max_pos_len, predictor=configs.predictor)
+#         self.init_parameters()
+
+#     def init_parameters(self):
+#         def init_weights(m):
+#             if isinstance(m, nn.Conv2d) or isinstance(m, nn.Conv1d) or isinstance(m, nn.Linear):
+#                 torch.nn.init.xavier_uniform_(m.weight)
+#                 if m.bias is not None:
+#                     torch.nn.init.zeros_(m.bias)
+#             elif isinstance(m, nn.LSTM):
+#                 m.reset_parameters()
+#         self.apply(init_weights)
+
+#     def forward(self, word_ids, char_ids, video_features, v_mask, q_mask):
+#         video_features = self.video_affine(video_features)
+#         query_features = self.embedding_net(word_ids, char_ids)
+#         video_features = self.feature_encoder(video_features, mask=v_mask)
+#         query_features = self.feature_encoder(query_features, mask=q_mask)
+#         features = self.cq_attention(video_features, query_features, v_mask, q_mask)
+#         features = self.cq_concat(features, query_features, q_mask)
+#         h_score = self.highlight_layer(features, v_mask)
+#         # features = features * h_score.unsqueeze(2)
+#         start_logits, end_logits = self.predictor(features, mask=v_mask)
+#         return start_logits, end_logits

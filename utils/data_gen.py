@@ -107,7 +107,7 @@ def vocab_emb_gen(datasets, emb_path):
 def load_dataset(configs):
 
     os.makedirs(configs.dataset.cache_dir, exist_ok=True)
-    cache_path = os.path.join(configs.dataset.cache_dir, '{}_{}.pkl'.format(configs.task, configs.suffix))
+    cache_path = os.path.join(configs.dataset.cache_dir, '{}_{}_{}.pkl'.format(configs.task, configs.max_pos_len,configs.suffix))
     if not os.path.exists(cache_path):
         generate_dataset(configs, cache_path)
         # dataset = replace_data(dataset, data_dir, cache_path, configs.task)

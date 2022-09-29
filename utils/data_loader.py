@@ -10,6 +10,8 @@ class Dataset(torch.utils.data.Dataset):
     def __init__(self, dataset, video_features):
         super(Dataset, self).__init__()
         self.dataset = dataset
+        self.dataset.sort(key=lambda x:x['vid'])
+
         self.video_features = video_features
 
     def __getitem__(self, index):
@@ -64,8 +66,6 @@ def collate_fn_VSL(data):
 
     tmask = (torch.zeros_like(word_ids) != word_ids).float()
     vmask = convert_length_to_mask(vfeat_lens)
-
-
     return records, vfeats, vmask, word_ids, char_ids, tmask, s_labels, e_labels, h_labels
 
 
