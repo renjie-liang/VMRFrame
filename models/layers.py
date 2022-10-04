@@ -111,7 +111,8 @@ class VisualProjection(nn.Module):
     def __init__(self, visual_dim, dim, droprate=0.0):
         super(VisualProjection, self).__init__()
         self.drop = nn.Dropout(p=droprate)
-        self.video_conv1d = Conv1D(in_dim=visual_dim, out_dim=dim, kernel_size=1, stride=1, bias=True, padding=0)
+        # self.video_conv1d = Conv1D(in_dim=visual_dim, out_dim=dim, kernel_size=1, stride=1, bias=True, padding=0)
+        self.video_conv1d = nn.Linear(visual_dim, dim)
         self.v_layer_norm = nn.LayerNorm(dim, eps=1e-6)
         
     def forward(self, visual_features):
