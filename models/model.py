@@ -6,6 +6,7 @@ import numpy as np
 
 from models.layers import Embedding, VisualProjection, FeatureEncoder, CQAttention, CQConcatenate, Conv1D, SeqPANPredictor
 from models.layers import DualAttentionBlock
+from models.cpl_utils import TransformerDecoder
 class SeqPAN(nn.Module):
     def __init__(self, configs, word_vectors):
         super(SeqPAN, self).__init__()
@@ -47,6 +48,8 @@ class SeqPAN(nn.Module):
         
         self.predictor = SeqPANPredictor(configs)
 
+        self.decoder1 = TransformerDecoder(num_layers=2, d_model=dim, num_heads=4, dropout=0.1)
+        self.decoder2 = TransformerDecoder(num_layers=2, d_model=dim, num_heads=4, dropout=0.1)
 
 
     def forward(self, word_ids, char_ids, vfeat_in, vmask, tmask):
@@ -61,17 +64,23 @@ class SeqPAN(nn.Module):
         vfeat = self.feat_encoder(vfeat)
         tfeat = self.feat_encoder(tfeat)
 
+        tfeat_, _ = self.decoder1(vfeat, vmask, tfeat, tmask)
+        vfeat_, _ = self.decoder2(tfeat, tmask, vfeat, vmask)
+        vfeat, tfeat = vfeat_, tfeat_
 
-        vfeat_ = self.dual_attention_block_1(vfeat, tfeat, vmask, tmask)
-        tfeat_ = self.dual_attention_block_1(tfeat, vfeat, tmask, vmask)
-        vfeat = vfeat_
-        tfeat = tfeat_
+        tfeat_, _ = self.decoder1(vfeat, vmask, tfeat, tmask)
+        vfeat_, _ = self.decoder2(tfeat, tmask, vfeat, vmask)
+        vfeat, tfeat = vfeat_, tfeat_
 
-        vfeat_ = self.dual_attention_block_2(vfeat, tfeat, vmask, tmask)
-        tfeat_ = self.dual_attention_block_2(tfeat, vfeat, tmask, vmask)
 
-        vfeat = vfeat_
-        tfeat = tfeat_
+        # vfeat_ = self.dual_attention_block_1(vfeat, tfeat, vmask, tmask)
+        # tfeat_ = self.dual_attention_block_1(tfeat, vfeat, tmask, vmask)
+        # vfeat, tfeat = vfeat_, tfeat_
+
+        # vfeat_ = self.dual_attention_block_2(vfeat, tfeat, vmask, tmask)
+        # tfeat_ = self.dual_attention_block_2(tfeat, vfeat, tmask, vmask)
+        # vfeat, tfeat = vfeat_, tfeat_
+
 
 
         t2v_feat = self.q2v_attn(vfeat, tfeat, vmask, tmask)
