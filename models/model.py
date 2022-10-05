@@ -5,8 +5,8 @@ import torch.nn.functional as F
 import numpy as np
 
 from models.layers import Embedding, VisualProjection, FeatureEncoder, CQAttention, CQConcatenate, Conv1D, SeqPANPredictor
-from models.layers import DualAttentionBlock
-from models.cpl_utils import TransformerDecoder
+from models.layers import DualAttentionBlock, WordEmbedding
+from models.cpl_utils import TransformerDecoder, _generate_mask, SinusoidalPositionalEmbedding
 class SeqPAN(nn.Module):
     def __init__(self, configs, word_vectors):
         super(SeqPAN, self).__init__()
@@ -50,17 +50,31 @@ class SeqPAN(nn.Module):
 
         self.decoder1 = TransformerDecoder(num_layers=2, d_model=dim, num_heads=4, dropout=0.1)
         self.decoder2 = TransformerDecoder(num_layers=2, d_model=dim, num_heads=4, dropout=0.1)
-
+        self.word_emb = WordEmbedding(configs.num_words, configs.model.word_dim, 0.0, word_vectors=word_vectors)
+        self.word_fc = nn.Linear(configs.model.word_dim, dim)
+        self.start_vec = nn.Parameter(torch.zeros(configs.model.word_dim).float(), requires_grad=True)
+        self.word_pos_encoder = SinusoidalPositionalEmbedding(dim, 0, 20)
 
     def forward(self, word_ids, char_ids, vfeat_in, vmask, tmask):
         B = vmask.shape[0]
 
-        tfeat = self.text_encoder(word_ids, char_ids)
+        # tfeat = self.text_encoder(word_ids, char_ids)
         vfeat = self.video_affine(vfeat_in)
 
-        # tmp1 = vfeat
-        # tmp2 = tfeat
-        
+        #### CPL
+        words_feat = self.word_emb(word_ids)
+        tmp = torch.zeros([B, 1, words_feat.shape[-1]]).cuda()
+        words_feat = torch.concat([tmp, words_feat], dim=1)
+        words_feat[:, 0] = self.start_vec
+        words_feat = F.dropout(words_feat, 0.1, self.training)
+        tfeat = self.word_fc(words_feat)
+        # words_pos = self.word_pos_encoder(words_feat)
+        # tfeat = tfeat + words_pos
+        tfeat = tfeat[:, 1:]
+        tmask = _generate_mask(words_feat, tmask.sum(dim=1).long() + 1)
+        tmask = tmask[:, 1:]
+
+
         vfeat = self.feat_encoder(vfeat)
         tfeat = self.feat_encoder(tfeat)
 
@@ -71,7 +85,7 @@ class SeqPAN(nn.Module):
         tfeat_, _ = self.decoder1(vfeat, vmask, tfeat, tmask)
         vfeat_, _ = self.decoder2(tfeat, tmask, vfeat, vmask)
         vfeat, tfeat = vfeat_, tfeat_
-
+    
 
         # vfeat_ = self.dual_attention_block_1(vfeat, tfeat, vmask, tmask)
         # tfeat_ = self.dual_attention_block_1(tfeat, vfeat, tmask, vmask)
@@ -82,7 +96,8 @@ class SeqPAN(nn.Module):
         # vfeat, tfeat = vfeat_, tfeat_
 
 
-
+        # print(vfeat.shape, vmask.shape)
+        # print(tfeat.shape, tmask.shape)
         t2v_feat = self.q2v_attn(vfeat, tfeat, vmask, tmask)
         v2t_feat = self.v2q_attn(tfeat, vfeat, tmask, vmask)
         
