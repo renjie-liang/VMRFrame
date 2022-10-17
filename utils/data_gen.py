@@ -6,7 +6,8 @@ from tqdm import tqdm
 from collections import Counter
 from nltk.tokenize import word_tokenize
 # from util.data_util import load_json, load_lines, load_pickle, save_pickle, time_to_index
-from utils.utils import load_json, load_pickle, time_to_index, index_to_time, save_pickle, time_to_index_my
+from utils.utils import load_json, load_pickle, save_pickle, time_idx
+import glob
 
 PAD, UNK = "<PAD>", "<UNK>"
 
@@ -117,11 +118,13 @@ def load_dataset(configs):
 
 def get_vfeat_len(configs):
     feature_dir = configs.dataset.feature_path
+    vlen_list = glob.glob(os.path.join(feature_dir, "*.npy"))
     vfeat_lens = {}
-    for vid in tqdm(os.listdir(feature_dir), desc="get video feature lengths"):
-        tmp = os.path.join(feature_dir, vid)
-        ll = np.load(tmp).shape[0]
-        vfeat_lens[vid[:-4]] = min(configs.max_pos_len, ll)
+    for vpath in tqdm(vlen_list, desc="get video feature lengths"):
+        tmp = os.path.split(vpath)
+        vid = tmp[-1][:-4]
+        ll = np.load(vpath).shape[0]
+        vfeat_lens[vid] = min(configs.max_pos_len, ll)
     return vfeat_lens 
 
 
@@ -129,10 +132,10 @@ def dataset_gen(data, vfeat_lens, word_dict, char_dict, max_pos_len, scope):
     dataset = list()
     for record in tqdm(data, total=len(data), desc='process {} data'.format(scope)):
         vid = record['vid']
-        # if vid not in vfeat_lens:
-        #     continue
+        if vid not in vfeat_lens:
+            continue
         # s_ind, e_ind, _ = time_to_index(record['s_time'], record['e_time'], vfeat_lens[vid], record['duration']) ### ???? replace???
-        s_ind, e_ind = time_to_index_my(record['s_time'], record['e_time'], vfeat_lens[vid], record['duration']) 
+        s_ind, e_ind = time_idx([record['s_time'], record['e_time']], record['duration'], vfeat_lens[vid])
         word_ids, char_ids = [], []
         for word in record['words'][0:max_pos_len]:
             word_id = word_dict[word] if word in word_dict else word_dict[UNK]
@@ -160,17 +163,7 @@ def generate_dataset(configs, cache_path):
     vfeat_lens = get_vfeat_len(configs)
     # data_dir = os.path.join('data', 'dataset', configs.task + "_" + configs.suffix)
     # load data
-    if configs.task == 'charades':
-        processor = CharadesProcessor()
-    # elif configs.task == 'activitynet':
-    #     processor = ActivityNetProcessor()
-    # elif configs.task == 'tacos':
-    #     processor = TACoSProcessor()
-    # elif configs.task == 'charades_active':
-    #     processor = CharadesActiveProcessor()
-    else:
-        raise ValueError('Unknown task {}!!!'.format(configs.task))
-
+    processor = CharadesProcessor()
     # train_data, val_data, test_data = processor.convert(data_dir)
 
     train_data = processor.convert(configs.dataset.train_data)

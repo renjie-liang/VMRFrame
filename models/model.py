@@ -12,7 +12,9 @@ class SeqPAN(nn.Module):
         super(SeqPAN, self).__init__()
         self.configs = configs
         dim = configs.model.dim
+        self.num_props = 8
         droprate = configs.model.droprate
+        self.vocab_size = configs.num_words
 
         max_pos_len = self.configs.max_pos_len
         self.text_encoder = Embedding(num_words=configs.num_words, num_chars=configs.num_chars, out_dim=dim,
@@ -54,12 +56,16 @@ class SeqPAN(nn.Module):
         self.word_fc = nn.Linear(configs.model.word_dim, dim)
         self.start_vec = nn.Parameter(torch.zeros(configs.model.word_dim).float(), requires_grad=True)
         self.word_pos_encoder = SinusoidalPositionalEmbedding(dim, 0, 20)
+        self.conv1d_cw = nn.Conv1d(in_channels=max_pos_len, out_channels=1, kernel_size=1)
+
+        self.fc_gauss = nn.Linear(dim, self.num_props*2)
+        self.fc_comp = nn.Linear(dim, self.vocab_size)
 
     def forward(self, word_ids, char_ids, vfeat_in, vmask, tmask):
-        B = vmask.shape[0]
-
+        B, L, D = vfeat_in.shape
+        P = self.num_props
         # tfeat = self.text_encoder(word_ids, char_ids)
-        vfeat = self.video_affine(vfeat_in)
+        vfeat_tmp = self.video_affine(vfeat_in)
 
         #### CPL
         words_feat = self.word_emb(word_ids)
@@ -67,15 +73,17 @@ class SeqPAN(nn.Module):
         words_feat = torch.concat([tmp, words_feat], dim=1)
         words_feat[:, 0] = self.start_vec
         words_feat = F.dropout(words_feat, 0.1, self.training)
-        tfeat = self.word_fc(words_feat)
+        tfeat_long = self.word_fc(words_feat)
+        tmask_long = _generate_mask(words_feat, tmask.sum(dim=1).long() + 1)
+
         # words_pos = self.word_pos_encoder(words_feat)
         # tfeat = tfeat + words_pos
-        tfeat = tfeat[:, 1:]
-        tmask = _generate_mask(words_feat, tmask.sum(dim=1).long() + 1)
-        tmask = tmask[:, 1:]
 
+        # SeqPAN
+        tfeat = tfeat_long[:, 1:]
+        tmask = tmask_long[:, 1:]
 
-        vfeat = self.feat_encoder(vfeat)
+        vfeat = self.feat_encoder(vfeat_tmp)
         tfeat = self.feat_encoder(tfeat)
 
         tfeat_, _ = self.decoder1(vfeat, vmask, tfeat, tmask)
@@ -85,19 +93,7 @@ class SeqPAN(nn.Module):
         tfeat_, _ = self.decoder1(vfeat, vmask, tfeat, tmask)
         vfeat_, _ = self.decoder2(tfeat, tmask, vfeat, vmask)
         vfeat, tfeat = vfeat_, tfeat_
-    
 
-        # vfeat_ = self.dual_attention_block_1(vfeat, tfeat, vmask, tmask)
-        # tfeat_ = self.dual_attention_block_1(tfeat, vfeat, tmask, vmask)
-        # vfeat, tfeat = vfeat_, tfeat_
-
-        # vfeat_ = self.dual_attention_block_2(vfeat, tfeat, vmask, tmask)
-        # tfeat_ = self.dual_attention_block_2(tfeat, vfeat, tmask, vmask)
-        # vfeat, tfeat = vfeat_, tfeat_
-
-
-        # print(vfeat.shape, vmask.shape)
-        # print(tfeat.shape, tmask.shape)
         t2v_feat = self.q2v_attn(vfeat, tfeat, vmask, tmask)
         v2t_feat = self.v2q_attn(tfeat, vfeat, tmask, vmask)
         
@@ -110,12 +106,59 @@ class SeqPAN(nn.Module):
         fuse_feat = (fuse_feat + soft_label_embs) * vmask.unsqueeze(2)
         start_logits, end_logits = self.predictor(fuse_feat, vmask)
 
-        # print(tmp1, tmp2)
-        # print(tmp1.shape, tmp2.shape)
-        # print(torch.max(tmp1), torch.max(tmp2))
-        # print(torch.min(tmp1), torch.min(tmp2))
-        return start_logits, end_logits, match_score, self.label_embs
 
+        ### CPL
+        props_len = L
+
+        weakly_feat = self.conv1d_cw(vfeat_tmp).squeeze()
+        gauss_param = torch.sigmoid(self.fc_gauss(weakly_feat)).view(B*P, 2)
+        gauss_center = gauss_param[:, 0]
+        gauss_width = gauss_param[:, 1]
+        
+        vfeat_props = torch.repeat_interleave(vfeat_tmp, P, dim=0)
+        vmask_props = torch.repeat_interleave(vmask, P, dim=0)
+        gauss_weight = self.generate_gauss_weight(props_len, gauss_center, gauss_width, vmask_props)
+        pos_weight = gauss_weight/gauss_weight.max(dim=-1, keepdim=True)[0]
+
+        tmask_props = torch.repeat_interleave(tmask_long[:, :-1], P, dim=0)
+        tfeat_props = torch.repeat_interleave(tfeat_long[:, :-1], P, dim=0)
+
+        enc_out, _ = self.decoder1(None, None, vfeat_props, vmask_props, tgt_gauss_weight=pos_weight)
+        out, weight = self.decoder2(enc_out, vmask_props, tfeat_props, tmask_props, src_gauss_weight=pos_weight)
+        words_logit = self.fc_comp(out)
+
+        res = {
+            "start_logits": start_logits,
+            "end_logits": end_logits,
+            "match_score": match_score,
+            "label_embs": self.label_embs,
+            'word_ids': word_ids,
+            'words_mask': tmask_long[:, :-1],
+            'words_logit': words_logit,
+            'gauss_weight': gauss_weight,
+            'width': gauss_width,
+            'center': gauss_center,
+        }
+
+        return res
+
+
+
+
+    def generate_gauss_weight(self, props_len, center, width, vmask):
+        # pdb.set_trace()
+        weight = torch.linspace(0, 1, props_len)
+        weight = weight.view(1, -1).expand(center.size(0), -1).to(center.device)
+
+        center = center * ( vmask.sum(dim=1) / vmask.shape[1])
+        center = center.unsqueeze(-1)
+        width = width * ( vmask.sum(dim=1) / vmask.shape[1])
+        width = width.unsqueeze(-1).clamp(1e-2) / 9
+
+        w = 0.3989422804014327
+        weight = w/width*torch.exp(-(weight-center)**2/(2*width**2))
+
+        return weight/weight.max(dim=-1, keepdim=True)[0]
 
 
 
@@ -165,3 +208,14 @@ class SeqPAN(nn.Module):
 #         # features = features * h_score.unsqueeze(2)
 #         start_logits, end_logits = self.predictor(features, mask=v_mask)
 #         return start_logits, end_logits
+
+
+    
+
+        # vfeat_ = self.dual_attention_block_1(vfeat, tfeat, vmask, tmask)
+        # tfeat_ = self.dual_attention_block_1(tfeat, vfeat, tmask, vmask)
+        # vfeat, tfeat = vfeat_, tfeat_
+
+        # vfeat_ = self.dual_attention_block_2(vfeat, tfeat, vmask, tmask)
+        # tfeat_ = self.dual_attention_block_2(tfeat, vfeat, tmask, vmask)
+        # vfeat, tfeat = vfeat_, tfeat_

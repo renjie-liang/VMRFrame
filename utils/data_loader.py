@@ -3,7 +3,7 @@ from random import shuffle
 import torch
 import numpy as np
 from utils.data_utils import pad_seq, pad_char_seq, pad_video_seq
-from utils.utils import convert_length_to_mask
+from utils.utils import convert_length_to_mask, gene_soft_label
 
 
 class Dataset(torch.utils.data.Dataset):
@@ -90,6 +90,9 @@ def collate_fn_SeqPAN(data):
     s_labels = np.zeros(shape=[batch_size, max_len], dtype=np.float32)
     e_labels = np.zeros(shape=[batch_size, max_len], dtype=np.float32)
     m_labels = np.zeros(shape=[batch_size, max_len], dtype=np.int32)  # (batch_size, v_seq_len)
+
+    new_s_labels, new_e_labels = [], []
+
     for idx in range(batch_size):
         st, et = s_inds[idx], e_inds[idx]
         cur_max_len = vfeat_lens[idx]
@@ -126,6 +129,12 @@ def collate_fn_SeqPAN(data):
         m_labels[idx][new_st_l:(new_st_r + 1)] = 1  # add B-M labels
         m_labels[idx][(new_st_r + 1):new_et_l] = 2  # add I-M labels
         m_labels[idx][new_et_l:(new_et_r + 1)] = 3  # add E-M labels
+
+        Ssoft, Esoft, _ = gene_soft_label(st, et, cur_max_len, max_len, 0.1)
+        new_s_labels.append(Ssoft*0.5)
+        new_e_labels.append(Esoft*0.5)
+    new_s_labels = np.stack(new_s_labels)
+    new_e_labels = np.stack(new_e_labels)
 
     # convert to torch tensor
     vfeats = torch.tensor(vfeats, dtype=torch.float32)
