@@ -24,7 +24,6 @@ class Conv1D(nn.Module):
         x = self.conv1d(x)
         return x.transpose(1, 2)  # (batch_size, seq_len, dim)
 
-
 class WordEmbedding(nn.Module):
     def __init__(self, num_words, word_dim, droprate, word_vectors=None):
         super(WordEmbedding, self).__init__()
@@ -665,6 +664,6 @@ class SeqPANPredictor(nn.Module):
         start_feat = self.start_hidden(torch.concat([start_feat, x], dim=-1))
         end_feat = self.end_hidden(torch.concat([end_feat, x], dim=-1))
 
-        start_logits = self.start_dense(start_feat).squeeze()
-        end_logits = self.end_dense(end_feat).squeeze()
+        start_logits = self.start_dense(start_feat).squeeze(-1)
+        end_logits = self.end_dense(end_feat).squeeze(-1)
         return start_logits, end_logits

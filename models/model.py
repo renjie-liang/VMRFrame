@@ -107,10 +107,10 @@ class SeqPAN(nn.Module):
         start_logits, end_logits = self.predictor(fuse_feat, vmask)
 
 
-        ### CPL
+        # ### CPL
         props_len = L
 
-        weakly_feat = self.conv1d_cw(vfeat_tmp).squeeze()
+        weakly_feat = self.conv1d_cw(vfeat_tmp).squeeze(1)
         gauss_param = torch.sigmoid(self.fc_gauss(weakly_feat)).view(B*P, 2)
         gauss_center = gauss_param[:, 0]
         gauss_width = gauss_param[:, 1]

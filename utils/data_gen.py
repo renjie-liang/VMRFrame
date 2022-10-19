@@ -136,6 +136,9 @@ def dataset_gen(data, vfeat_lens, word_dict, char_dict, max_pos_len, scope):
             continue
         # s_ind, e_ind, _ = time_to_index(record['s_time'], record['e_time'], vfeat_lens[vid], record['duration']) ### ???? replace???
         s_ind, e_ind = time_idx([record['s_time'], record['e_time']], record['duration'], vfeat_lens[vid])
+        if e_ind > vfeat_lens[vid]:
+            print(record)
+
         word_ids, char_ids = [], []
         for word in record['words'][0:max_pos_len]:
             word_id = word_dict[word] if word in word_dict else word_dict[UNK]

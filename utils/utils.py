@@ -109,9 +109,9 @@ def apply_to_sample(f, sample):
 
 
 
-def convert_length_to_mask(lengths):
+def convert_length_to_mask(lengths, max_len):
     lengths = torch.from_numpy(lengths)
-    max_len = lengths.max().item()
+    # max_len = lengths.max().item()
     mask = torch.arange(max_len).expand(lengths.size()[0], max_len) < lengths.unsqueeze(1)
     mask = mask.float()
     return mask

@@ -25,9 +25,10 @@ def lossfun_match(m_probs, label_embs, m_labels, vmask):
     # NLLLoss
     # loss_fun = nn.NLLLoss()
     loss_fun = nn.CrossEntropyLoss()
-    m_loss = loss_fun(m_probs.transpose(1,2), m_labels)
+    m_loss = loss_fun(m_probs, m_labels)
+    # m_loss = loss_fun(m_probs.transpose(1,2), m_labels)
 
-    m_labels = F.one_hot(m_labels)
+    # m_labels = F.one_hot(m_labels)
     loss_per_sample = -torch.sum(m_labels * m_probs, dim=-1)
     m_loss =torch.sum(loss_per_sample * vmask, dim=-1) / (torch.sum(vmask, dim=-1) + 1e-12)
     m_loss = m_loss.mean()
@@ -59,6 +60,29 @@ def infer(start_logits, end_logits, vmask):
     
     outer = torch.matmul(start_prob.unsqueeze(2),end_prob.unsqueeze(1))
     outer = torch.triu(outer, diagonal=0)
+    _, start_index = torch.max(torch.max(outer, dim=2)[0], dim=1)  # (batch_size, )
+    _, end_index = torch.max(torch.max(outer, dim=1)[0], dim=1)  # (batch_size, )
+    
+    start_frac = (start_index/vmask.sum(dim=1)).cpu().numpy()
+    end_frac = (end_index/vmask.sum(dim=1)).cpu().numpy()
+    return start_frac, end_frac
+
+
+def infer_my(start_logits, end_logits, vmask):
+    L = start_logits.shape[1]
+    start_logits = mask_logits(start_logits, vmask)
+    end_logits = mask_logits(end_logits, vmask)
+
+    start_prob = torch.softmax(start_logits, dim=1) ### !!!
+    end_prob = torch.softmax(end_logits, dim=1)
+
+    outer = torch.matmul(start_prob.unsqueeze(2),end_prob.unsqueeze(1))
+    pad = nn.ReflectionPad2d(padding=(2, 2, 2, 2))
+    outer = pad(outer).unsqueeze(1)
+    kernel = torch.ones(1, 1, 5, 5).cuda()
+    outer = F.conv2d(outer, kernel, padding=0).squeeze()
+    outer = torch.triu(outer, diagonal=0)
+
     _, start_index = torch.max(torch.max(outer, dim=2)[0], dim=1)  # (batch_size, )
     _, end_index = torch.max(torch.max(outer, dim=1)[0], dim=1)  # (batch_size, )
     

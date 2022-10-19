@@ -7,19 +7,20 @@ from utils.utils import convert_length_to_mask, gene_soft_label
 
 
 class Dataset(torch.utils.data.Dataset):
-    def __init__(self, dataset, video_features):
+    def __init__(self, dataset, video_features, max_len):
         super(Dataset, self).__init__()
         self.dataset = dataset
         self.dataset.sort(key=lambda x:x['vid'])
 
         self.video_features = video_features
-
+        self.max_len = max_len
     def __getitem__(self, index):
         record = self.dataset[index]
         video_feature = self.video_features[record['vid']]
         s_ind, e_ind = int(record['s_ind']), int(record['e_ind'])
         word_ids, char_ids = record['w_ids'], record['c_ids']
-        return record, video_feature, word_ids, char_ids, s_ind, e_ind
+        max_len = self.max_len
+        return record, video_feature, word_ids, char_ids, s_ind, e_ind, max_len
 
     def __len__(self):
         return len(self.dataset)
@@ -71,29 +72,32 @@ def collate_fn_VSL(data):
 
 
 def collate_fn_SeqPAN(data):
-    records, vfeats_raw, word_ids, char_ids, s_inds, e_inds = zip(*data)
+
+    records, vfeats_raw, word_ids, char_ids, s_inds, e_inds, max_lens = zip(*data)
+    max_len = max_lens[0]
+    B = len(data)
+
     # process word ids
     word_ids, _ = pad_seq(word_ids)
-    word_ids = np.asarray(word_ids, dtype=np.int32)  # (batch_size, w_seq_len)
+    word_ids = np.asarray(word_ids, dtype=np.int32)  # (B, w_seq_len)
     # process char ids
     char_ids, _ = pad_char_seq(char_ids)
-    char_ids = np.asarray(char_ids, dtype=np.int32)  # (batch_size, w_seq_len, c_seq_len)
+    char_ids = np.asarray(char_ids, dtype=np.int32)  # (B, w_seq_len, c_seq_len)
     # process video features
-    vfeats, vfeat_lens = pad_video_seq(vfeats_raw)
-    vfeats = np.asarray(vfeats, dtype=np.float32)  # (batch_size, v_seq_len, v_dim)
-    vfeat_lens = np.asarray(vfeat_lens, dtype=np.int32)  # (batch_size, )
+    vfeats, vfeat_lens = pad_video_seq(vfeats_raw, max_len)
+    vfeats = np.asarray(vfeats, dtype=np.float32)  # (B, v_seq_len, v_dim)
+    vfeat_lens = np.asarray(vfeat_lens, dtype=np.int32)  # (B, )
 
     # process labels
-    max_len = np.max(vfeat_lens)
-    batch_size = len(data)
 
-    s_labels = np.zeros(shape=[batch_size, max_len], dtype=np.float32)
-    e_labels = np.zeros(shape=[batch_size, max_len], dtype=np.float32)
-    m_labels = np.zeros(shape=[batch_size, max_len], dtype=np.int32)  # (batch_size, v_seq_len)
+    s_labels = np.zeros(shape=[B, max_len], dtype=np.float32)
+    e_labels = np.zeros(shape=[B, max_len], dtype=np.float32)
+    m_labels = np.zeros(shape=[B, max_len], dtype=np.int32)  # (B, v_seq_len)
+    new_m_labels = np.zeros(shape=[B, max_len, 4], dtype=np.float32)  # (B, v_seq_len)
 
-    new_s_labels, new_e_labels = [], []
+    new_s_labels, new_e_labels, new_match_labels = [], [], []
 
-    for idx in range(batch_size):
+    for idx in range(B):
         st, et = s_inds[idx], e_inds[idx]
         cur_max_len = vfeat_lens[idx]
         # create classification labels
@@ -130,22 +134,32 @@ def collate_fn_SeqPAN(data):
         m_labels[idx][(new_st_r + 1):new_et_l] = 2  # add I-M labels
         m_labels[idx][new_et_l:(new_et_r + 1)] = 3  # add E-M labels
 
-        Ssoft, Esoft, _ = gene_soft_label(st, et, cur_max_len, max_len, 0.1)
-        new_s_labels.append(Ssoft*0.5)
-        new_e_labels.append(Esoft*0.5)
+
+        new_m_labels[idx, np.where(m_labels[idx]==0), 0] = 1 
+        new_m_labels[idx, np.where(m_labels[idx]==1), 1] = 1 
+        new_m_labels[idx, np.where(m_labels[idx]==2), 2] = 1 
+        new_m_labels[idx, np.where(m_labels[idx]==3), 3] = 1 
+
+
+        Ssoft, Esoft, Msoft = gene_soft_label(st, et, cur_max_len, max_len, 0.1)
+        new_s_labels.append(Ssoft)
+        new_e_labels.append(Esoft)
+        new_match_labels.append(Msoft)
+
     new_s_labels = np.stack(new_s_labels)
     new_e_labels = np.stack(new_e_labels)
+    new_match_labels = np.stack(new_match_labels)
 
     # convert to torch tensor
     vfeats = torch.tensor(vfeats, dtype=torch.float32)
     word_ids = torch.tensor(word_ids, dtype=torch.int64)
     char_ids = torch.tensor(char_ids, dtype=torch.int64)
-    s_labels = torch.tensor(s_labels, dtype=torch.float32)
-    e_labels = torch.tensor(e_labels, dtype=torch.float32)
-    m_labels = torch.tensor(m_labels, dtype=torch.int64)
+    s_labels = torch.tensor(new_s_labels, dtype=torch.float32)
+    e_labels = torch.tensor(new_e_labels, dtype=torch.float32)
+    m_labels = torch.tensor(new_match_labels, dtype=torch.float32)
     
     tmask = (torch.zeros_like(word_ids) != word_ids).float()
-    vmask = convert_length_to_mask(vfeat_lens)
+    vmask = convert_length_to_mask(vfeat_lens, max_len=max_len)
 
     return records, vfeats, vmask, word_ids, char_ids, tmask, s_labels, e_labels, m_labels
 
@@ -155,7 +169,7 @@ def collate_fn_SeqPAN(data):
 
 
 def get_loader(dataset, video_features, configs, loadertype):
-    data_set = Dataset(dataset=dataset, video_features=video_features)
+    data_set = Dataset(dataset=dataset, video_features=video_features, max_len=configs.max_pos_len)
     if loadertype == "train":
         shuffle = True
     else:

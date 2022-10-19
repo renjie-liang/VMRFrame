@@ -9,7 +9,7 @@ from easydict import EasyDict
 from tqdm import tqdm
 
 from models.model import SeqPAN
-from models.loss import lossfun_match, lossfun_loc, infer, append_ious, get_i345_mi, rec_loss_cpl, div_loss_cpl
+from models.loss import lossfun_match, lossfun_loc, infer, infer_my, append_ious, get_i345_mi, rec_loss_cpl, div_loss_cpl
 from utils.data_gen import load_dataset
 from utils.data_utils import load_video_features
 from utils.utils import load_json, set_seed_config, build_optimizer_and_scheduler, plot_labels, AverageMeter, get_logger, save_best_model
@@ -18,7 +18,7 @@ from models.cpl_utils import infer_cpl
 
 torch.set_printoptions(precision=4, sci_mode=False)
 
-weak_full = "full"
+weak_full = "weak"
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -73,9 +73,9 @@ lossmeter = AverageMeter()
 if not args.eval:
     # build model
     model = build_load_model(configs, dataset['word_vector'])
-    for m in model.modules():
-        if isinstance(m, (nn.Conv2d, nn.Linear)):
-            nn.init.xavier_uniform_(m.weight)
+    # for m in model.modules():
+    #     if isinstance(m, (nn.Conv2d, nn.Linear)):
+    #         nn.init.xavier_uniform_(m.weight)
 
     optimizer, scheduler = build_optimizer_and_scheduler(model, configs=configs)
     best_r1i7, global_step, mi_val_best = -1.0, 0, 0
@@ -132,7 +132,7 @@ if not args.eval:
 
             # evaluate
             if weak_full == "full":
-                start_fracs, end_fracs = infer(start_logits, end_logits, vmask)
+                start_fracs, end_fracs = infer_my(start_logits, end_logits, vmask)
             elif weak_full == "weak":
                 start_fracs, end_fracs, selected_props = infer_cpl(res, vmask, configs)
 
@@ -144,7 +144,7 @@ if not args.eval:
         model.eval()
         lossmeter.reset()
         tbar = tqdm(test_loader)
-        ious = []
+        ious, ious_my = [], []
 
         for data in tbar:
             records, vfeats, vmask, word_ids, char_ids, tmask, s_labels, e_labels, m_labels = data
@@ -179,19 +179,74 @@ if not args.eval:
             
             lossmeter.update(loss.item())
             tbar.set_description("TEST  {:2d}|{:2d} LOSS:{:.4f}".format(epoch + 1, configs.train.epochs, lossmeter.avg))
-
+            
             if weak_full == "full":
                 start_fracs, end_fracs = infer(start_logits, end_logits, vmask)
+                start_fracs_my, end_fracs_my = infer_my(start_logits, end_logits, vmask)
+
             elif weak_full == "weak":
                 start_fracs, end_fracs, selected_props = infer_cpl(res, vmask, configs)
 
             ious = append_ious(ious, records, start_fracs, end_fracs)
+            # ious_my = append_ious(ious_my, records, start_fracs_my, end_fracs_my)
 
         r1i3, r1i5, r1i5, r1i7, mi = get_i345_mi(ious)
+        # r1i3_my, r1i5_my, r1i5_my, r1i7_my, mi_my = get_i345_mi(ious_my)
 
         save_name = os.path.join(model_dir, "best.pkl")
         save_best_model(mi, model, save_name)
 
         logger.info("TEST |\tmIoU: {:.2f}\tR1I3: {:.2f}\tR1I5: {:.2f}\tR1I7: {:.2f}\tloss:{:.4f}".format(mi, r1i3, r1i5, r1i7, lossmeter.avg))
+        # logger.info("MY TEST |\tmIoU: {:.2f}\tR1I3: {:.2f}\tR1I5: {:.2f}\tR1I7: {:.2f}\tloss:{:.4f}".format(mi_my, r1i3_my, r1i5_my, r1i7_my, lossmeter.avg))
         logger.info("")
+
+if args.eval:
+    model = build_load_model(configs, dataset['word_vector'])
+    model.eval()
+    lossmeter.reset()
+    tbar = tqdm(test_loader)
+    ious = []
+    for data in tbar:
+        records, vfeats, vmask, word_ids, char_ids, tmask, s_labels, e_labels, m_labels = data
+        vfeats, vmask = vfeats.to(device), vmask.to(device) 
+        word_ids, char_ids, tmask = word_ids.to(device), char_ids.to(device), tmask.to(device)
+        s_labels, e_labels, m_labels = s_labels.to(device), e_labels.to(device), m_labels.to(device)
+        
+        res= model(word_ids, char_ids, vfeats, vmask, tmask)
+
+        if weak_full == "full":
+            start_logits = res["start_logits"]
+            end_logits = res["end_logits"]
+            match_score = res["match_score"]
+            label_embs = res["label_embs"]
+
+            m_loss = lossfun_match(match_score, label_embs, m_labels, vmask)
+            loc_loss = lossfun_loc(start_logits, end_logits, s_labels, e_labels, vmask)
+            loss =loc_loss + m_loss
+
+        elif weak_full == "weak":
+            word_ids = res["word_ids"]
+            words_mask = res["words_mask"]
+            words_logit = res["words_logit"]
+            gauss_weight = res["gauss_weight"]
+            width = res["width"]
+            center = res["center"]
+
+            loss_rec = rec_loss_cpl(configs=configs, tlogist_prop=words_logit, 
+                                words_id=word_ids, words_mask=words_mask, tlogist_gt=None)
+            loss_div = div_loss_cpl(words_logit=words_logit, gauss_weight=gauss_weight, configs=configs)
+            loss = loss_rec + loss_div
+        
+        lossmeter.update(loss.item())
+        
+        if weak_full == "full":
+            start_fracs, end_fracs = infer_my(start_logits, end_logits, vmask)
+        elif weak_full == "weak":
+            start_fracs, end_fracs, selected_props = infer_cpl(res, vmask, configs)
+
+        ious = append_ious(ious, records, start_fracs, end_fracs)
+    r1i3, r1i5, r1i5, r1i7, mi = get_i345_mi(ious)
+    logger.info("TEST |\tmIoU: {:.2f}\tR1I3: {:.2f}\tR1I5: {:.2f}\tR1I7: {:.2f}\tloss:{:.4f}".format(mi, r1i3, r1i5, r1i7, lossmeter.avg))
+    logger.info("")
+
 print("Done!")
