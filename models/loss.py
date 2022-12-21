@@ -50,45 +50,29 @@ def lossfun_loc(start_logits, end_logits, s_labels, e_labels, vmask):
 
 
 
-def infer(start_logits, end_logits, vmask):
-    L = start_logits.shape[1]
-    start_logits = mask_logits(start_logits, vmask)
-    end_logits = mask_logits(end_logits, vmask)
 
-    start_prob = torch.softmax(start_logits, dim=1) ### !!!
-    end_prob = torch.softmax(end_logits, dim=1)
+
+# def infer_my(start_logits, end_logits, vmask):
+#     L = start_logits.shape[1]
+#     start_logits = mask_logits(start_logits, vmask)
+#     end_logits = mask_logits(end_logits, vmask)
+
+#     start_prob = torch.softmax(start_logits, dim=1) ### !!!
+#     end_prob = torch.softmax(end_logits, dim=1)
+
+#     outer = torch.matmul(start_prob.unsqueeze(2),end_prob.unsqueeze(1))
+#     pad = nn.ReflectionPad2d(padding=(2, 2, 2, 2))
+#     outer = pad(outer).unsqueeze(1)
+#     kernel = torch.ones(1, 1, 5, 5).cuda()
+#     outer = F.conv2d(outer, kernel, padding=0).squeeze()
+#     outer = torch.triu(outer, diagonal=0)
+
+#     _, start_index = torch.max(torch.max(outer, dim=2)[0], dim=1)  # (batch_size, )
+#     _, end_index = torch.max(torch.max(outer, dim=1)[0], dim=1)  # (batch_size, )
     
-    outer = torch.matmul(start_prob.unsqueeze(2),end_prob.unsqueeze(1))
-    outer = torch.triu(outer, diagonal=0)
-    _, start_index = torch.max(torch.max(outer, dim=2)[0], dim=1)  # (batch_size, )
-    _, end_index = torch.max(torch.max(outer, dim=1)[0], dim=1)  # (batch_size, )
-    
-    start_frac = (start_index/vmask.sum(dim=1)).cpu().numpy()
-    end_frac = (end_index/vmask.sum(dim=1)).cpu().numpy()
-    return start_frac, end_frac
-
-
-def infer_my(start_logits, end_logits, vmask):
-    L = start_logits.shape[1]
-    start_logits = mask_logits(start_logits, vmask)
-    end_logits = mask_logits(end_logits, vmask)
-
-    start_prob = torch.softmax(start_logits, dim=1) ### !!!
-    end_prob = torch.softmax(end_logits, dim=1)
-
-    outer = torch.matmul(start_prob.unsqueeze(2),end_prob.unsqueeze(1))
-    pad = nn.ReflectionPad2d(padding=(2, 2, 2, 2))
-    outer = pad(outer).unsqueeze(1)
-    kernel = torch.ones(1, 1, 5, 5).cuda()
-    outer = F.conv2d(outer, kernel, padding=0).squeeze()
-    outer = torch.triu(outer, diagonal=0)
-
-    _, start_index = torch.max(torch.max(outer, dim=2)[0], dim=1)  # (batch_size, )
-    _, end_index = torch.max(torch.max(outer, dim=1)[0], dim=1)  # (batch_size, )
-    
-    start_frac = (start_index/vmask.sum(dim=1)).cpu().numpy()
-    end_frac = (end_index/vmask.sum(dim=1)).cpu().numpy()
-    return start_frac, end_frac
+#     start_frac = (start_index/vmask.sum(dim=1)).cpu().numpy()
+#     end_frac = (end_index/vmask.sum(dim=1)).cpu().numpy()
+#     return start_frac, end_frac
 
 
 def append_ious(ious, records, start_fracs, end_fracs):
@@ -133,7 +117,7 @@ def cal_nll_loss(logit, idx, mask, weights=None):
 
 
 def rec_loss_cpl(configs, tlogist_prop, words_id, words_mask, tlogist_gt=None):
-    P = configs.cpl.num_props
+    P = configs.others.cpl_num_props
     B = tlogist_prop.size(0) // P
 
     words_mask1 = words_mask.unsqueeze(1) \
@@ -155,15 +139,15 @@ def rec_loss_cpl(configs, tlogist_prop, words_id, words_mask, tlogist_gt=None):
     return final_loss
 
 
-
 def div_loss_cpl(words_logit, gauss_weight, configs):
-    P = configs.cpl.num_props
+    P = configs.others.cpl_num_props
     B = words_logit.size(0) // P
     
     gauss_weight = gauss_weight.view(B, P, -1)
     gauss_weight = gauss_weight / gauss_weight.sum(dim=-1, keepdim=True)
-    target = torch.eye(P).unsqueeze(0).cuda() * configs.cpl.div_lambda
+    target = torch.eye(P).unsqueeze(0).cuda() * configs.others.cpl_div_lambda
     source = torch.matmul(gauss_weight, gauss_weight.transpose(1, 2))
     div_loss = torch.norm(target - source, dim=(1, 2))**2
 
-    return div_loss.mean() * configs.cpl.div_loss_alhpa
+    return div_loss.mean() * configs.others.cpl_div_loss_alhpa
+

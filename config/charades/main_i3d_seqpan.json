@@ -1,0 +1,36 @@
+{
+  "task" : "charades",
+
+  "paths": {
+    "ckpt_dir": "./ckpt",
+    "cache_dir" : "./data_pkl/",
+
+    "feature_path": "/storage_fast/rjliang/charades/i3d",
+    "glove_path": "/storage_fast/rjliang/glove/glove.6B.300d.txt",
+    "train_path": "data/charades_clean/train.json",
+    "test_path": "data/charades_clean/test.json",
+    "val_path": ""
+  },
+
+  "train": {
+    "epochs": 30,
+    "batch_size": 128,
+    "lr": 0.0002,
+    "warmup_proportion": 0.01,
+    "clip_norm": 1.0
+  },
+
+  "model": {
+    "name": "SeqPAN",
+    "vlen": 64,
+    "vdim": 1024,
+    "dim": 128,
+    "num_heads": 4,
+    "word_dim": 300,
+    "char_dim": 100,
+    "droprate": 0.1
+  },
+  "others":
+  {
+  }
+}

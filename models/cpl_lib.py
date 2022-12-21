@@ -347,28 +347,6 @@ class TransformerDecoder(nn.Module):
 #     return start_fracs, end_fracs, selected_props
         
 
-def infer_cpl(output, vmask, configs): ## don't consider vmask
-    P = configs.cpl.num_props
-    B = output['words_logit'].size(0)  // P
-    
-
-    tmask_props = torch.repeat_interleave(output['words_mask'], P, dim=0)
-    word_ids = torch.repeat_interleave(output['word_ids'], P, dim=0)
-    nll_loss, acc = cal_nll_loss(output['words_logit'], word_ids, tmask_props)
-    idx = nll_loss.view(B, P).argsort(dim=-1)
-
-    width = output['width'].view(B, P).gather(index=idx, dim=-1)
-    center = output['center'].view(B, P).gather(index=idx, dim=-1)
-    
-    selected_props = torch.stack([torch.clamp(center-width/2, min=0), 
-                                    torch.clamp(center+width/2, max=1)], dim=-1)
-    selected_props = selected_props.detach().cpu().numpy()
-
-    start_fracs, end_fracs = selected_props[:, 0, 0], selected_props[:, 0, 1] 
-
-    return start_fracs, end_fracs, selected_props
-        
-
 
 
 

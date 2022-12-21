@@ -106,9 +106,8 @@ def vocab_emb_gen(datasets, emb_path):
 
 
 def load_dataset(configs):
-
-    os.makedirs(configs.dataset.cache_dir, exist_ok=True)
-    cache_path = os.path.join(configs.dataset.cache_dir, '{}_{}_{}.pkl'.format(configs.task, configs.max_pos_len,configs.suffix))
+    os.makedirs(configs.paths.cache_dir, exist_ok=True)
+    cache_path = os.path.join(configs.paths.cache_dir, '{}_{}_{}.pkl'.format(configs.task, configs.model.vlen,configs.suffix))
     if not os.path.exists(cache_path):
         generate_dataset(configs, cache_path)
         # dataset = replace_data(dataset, data_dir, cache_path, configs.task)
@@ -117,14 +116,14 @@ def load_dataset(configs):
 
 
 def get_vfeat_len(configs):
-    feature_dir = configs.dataset.feature_path
+    feature_dir = configs.paths.feature_path
     vlen_list = glob.glob(os.path.join(feature_dir, "*.npy"))
     vfeat_lens = {}
     for vpath in tqdm(vlen_list, desc="get video feature lengths"):
         tmp = os.path.split(vpath)
         vid = tmp[-1][:-4]
         ll = np.load(vpath).shape[0]
-        vfeat_lens[vid] = min(configs.max_pos_len, ll)
+        vfeat_lens[vid] = min(configs.model.vlen, ll)
     return vfeat_lens 
 
 
@@ -169,25 +168,25 @@ def generate_dataset(configs, cache_path):
     processor = CharadesProcessor()
     # train_data, val_data, test_data = processor.convert(data_dir)
 
-    train_data = processor.convert(configs.dataset.train_data)
-    test_data = processor.convert(configs.dataset.test_data)
+    train_data = processor.convert(configs.paths.train_path)
+    test_data = processor.convert(configs.paths.test_path)
 
-    if configs.dataset.val_data == '':
+    if configs.paths.val_path == '':
         data_list = [train_data, test_data]
     else:
-        val_data = processor.convert(configs.dataset.val_data)
+        val_data = processor.convert(configs.paths.val_path)
         data_list = [train_data, val_data, test_data]
 
     # generate dataset
-    word_dict, char_dict, vectors = vocab_emb_gen(data_list, configs.glove_path)
+    word_dict, char_dict, vectors = vocab_emb_gen(data_list, configs.paths.glove_path)
 
-    train_set = dataset_gen(train_data, vfeat_lens, word_dict, char_dict, configs.max_pos_len, 'train') # ???? active
-    test_set = dataset_gen(test_data, vfeat_lens, word_dict, char_dict, configs.max_pos_len, 'test')
-    if configs.dataset.val_data == '':
+    train_set = dataset_gen(train_data, vfeat_lens, word_dict, char_dict, configs.model.vlen, 'train') # ???? active
+    test_set = dataset_gen(test_data, vfeat_lens, word_dict, char_dict, configs.model.vlen, 'test')
+    if configs.paths.val_path == '':
         val_set = None
         n_val = 0 
     else:
-        val_set = dataset_gen(val_data, vfeat_lens, word_dict, char_dict, configs.max_pos_len, 'val')
+        val_set = dataset_gen(val_data, vfeat_lens, word_dict, char_dict, configs.model.vlen, 'val')
         n_val = len(val_set)
 
     # save dataset
@@ -225,18 +224,18 @@ def generate_dataset(configs, cache_path):
 
 
     # train_data, val_data, test_data = processor.convert(data_dir)
-    train_data = processor.convert(configs.dataset.train_data, 'train')
-    test_data = processor.convert(configs.dataset.test_data, 'test')
+    train_data = processor.convert(configs.paths.train_path, 'train')
+    test_data = processor.convert(configs.paths.test_path, 'test')
     # train_data, val_data, test_data = processor.convert(data_dir)
 
 
     # generate dataset
     # data_list = [train_data, test_data] if val_data is None else [train_data, val_data, test_data]
-    word_dict, char_dict, vectors = vocab_emb_gen(data_list, configs.glove_path)
+    word_dict, char_dict, vectors = vocab_emb_gen(data_list, configs.paths.glove_path)
 
-    train_set = dataset_gen_active(train_data, vfeat_lens, word_dict, char_dict, configs.max_pos_len, 'train')
-    val_set = None if val_data is None else dataset_gen(val_data, vfeat_lens, word_dict, char_dict, configs.max_pos_len, 'val')
-    test_set = dataset_gen(test_data, vfeat_lens, word_dict, char_dict, configs.max_pos_len, 'test')
+    train_set = dataset_gen_active(train_data, vfeat_lens, word_dict, char_dict, configs.model.vlen, 'train')
+    val_set = None if val_data is None else dataset_gen(val_data, vfeat_lens, word_dict, char_dict, configs.model.vlen, 'val')
+    test_set = dataset_gen(test_data, vfeat_lens, word_dict, char_dict, configs.model.vlen, 'test')
     
     
     # save dataset

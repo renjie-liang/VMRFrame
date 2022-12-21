@@ -193,7 +193,7 @@ def save_best_model(score, model, save_name):
     if score > best_score:
         best_score = score
         torch.save(model.state_dict(), save_name)
-        print("**save best checkpoint to {}, mIoU={}**".format(save_name, score))
+        print("***save best checkpoint to {}, mIoU={:.2f}**".format(save_name, score))
 
 
 
@@ -227,3 +227,16 @@ def gene_soft_label(sidx, eidx, vlen, L, alpha):
     Msoft = np.stack([Osoft, Ssoft, Isoft, Esoft]).T
     
     return Ssoft, Esoft, Msoft
+
+
+from models.model import SeqPAN, CPL
+def build_load_model(configs, args, word_vector):
+    model = eval(configs.model.name)(configs, word_vector)
+    if torch.cuda.device_count() > 1:
+        print("Using", torch.cuda.device_count(), "GPUs")
+        model = torch.nn.DataParallel(model)
+    model  = model.to(configs.device)
+    if args.checkpoint:
+        model_checkpoint = torch.load(args.checkpoint)
+        model.load_state_dict(model_checkpoint)
+    return model

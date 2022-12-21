@@ -641,7 +641,7 @@ class SeqPANPredictor(nn.Module):
     def __init__(self, configs):
         super(SeqPANPredictor, self).__init__()
         self.feature_encoder = FeatureEncoderPredict(dim=configs.model.dim, num_heads=4, 
-                                                max_pos_len=configs.max_pos_len, 
+                                                max_pos_len=configs.model.vlen, 
                                                 droprate=configs.model.droprate, attn_drop=configs.model.droprate)
 
 
