@@ -5,39 +5,43 @@ import pickle
 import numpy as np
 from tqdm import tqdm
 import torch
+import torch.nn.functional as F  
 
-def visual_feature_sampling(visual_feature, max_num_clips): ### ??? using cv2 nearst
-    num_clips = visual_feature.shape[0]
-    if num_clips <= max_num_clips:
-        return visual_feature
-    idxs = np.arange(0, max_num_clips + 1, 1.0) / max_num_clips * num_clips
-    idxs = np.round(idxs).astype(np.int32)
-    idxs[idxs > num_clips - 1] = num_clips - 1
-    new_visual_feature = []
-    for i in range(max_num_clips):
-        s_idx, e_idx = idxs[i], idxs[i + 1]
-        if s_idx < e_idx:
-            new_visual_feature.append(np.mean(visual_feature[s_idx:e_idx], axis=0))
-        else:
-            new_visual_feature.append(visual_feature[s_idx])
-    new_visual_feature = np.asarray(new_visual_feature)
-    return new_visual_feature
+# def visual_feature_sampling(visual_feature, max_num_clips): ### ??? using cv2 nearst
+#     num_clips = visual_feature.shape[0]
+#     if num_clips <= max_num_clips:
+#         return visual_feature
+#     idxs = np.arange(0, max_num_clips + 1, 1.0) / max_num_clips * num_clips
+#     idxs = np.round(idxs).astype(np.int32)
+#     idxs[idxs > num_clips - 1] = num_clips - 1
+#     new_visual_feature = []
+#     for i in range(max_num_clips):
+#         s_idx, e_idx = idxs[i], idxs[i + 1]
+#         if s_idx < e_idx:
+#             new_visual_feature.append(np.mean(visual_feature[s_idx:e_idx], axis=0))
+#         else:
+#             new_visual_feature.append(visual_feature[s_idx])
+#     new_visual_feature = np.asarray(new_visual_feature)
+#     return new_visual_feature
 
 
-def load_video_features(root, max_position_length):
+def load_video_features(root, max_vlen):
     video_features = dict()
     filenames = glob.glob(os.path.join(root, "*.npy"))
     for filename in tqdm(filenames, total=len(filenames), desc="load video features"):
         video_id = filename.split("/")[-1].split(".")[0]
         feature = np.load(filename)
-        if max_position_length is None:
-            video_features[video_id] = feature
-        else:
-            new_feature = visual_feature_sampling(feature, max_num_clips=max_position_length)
-            video_features[video_id] = new_feature
+        feature = torch.FloatTensor(feature)
+        video_features[video_id] = sample_vfeat_linear(feature, max_vlen)
     return video_features
 
-
+def sample_vfeat_linear(v_feat, max_seq_len):
+        
+    output = F.interpolate(v_feat.transpose(0, 1).unsqueeze(0),
+                    size=max_seq_len, mode='linear',
+                    align_corners=False)
+    output = output[0, ...].transpose(0, 1)
+    return output
 
 def pad_seq(sequences, pad_tok=None, max_length=None):
     if pad_tok is None:

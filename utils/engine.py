@@ -1,6 +1,7 @@
 import torch
 from models.layers import mask_logits
 from models.loss import lossfun_match, lossfun_loc, append_ious, get_i345_mi, rec_loss_cpl, div_loss_cpl
+import torch.nn.functional as F
 
 
 def train_engine_SeqPAN(model, data, configs):
@@ -50,7 +51,31 @@ def train_engine_CPL(model, data, configs):
 
 
 
+def scale(iou, min_iou, max_iou):
+    return (iou - min_iou) / (max_iou - min_iou)
 
+def train_engine_BAN(model, indata, configs):
+    _, data = indata
+    data = {key: value.to(configs.device) for key, value in data.items()}
+    out = model(data['vfeats'], data['word_ids'], data['vlens'], data['tlens'], data['start_end_offset'])
+
+    # loss 
+    scores2d, ious2d, mask2d = out['tmap'], data['iou2ds'], out['map2d_mask'],
+    ious2d_scaled = scale(ious2d, configs.loss.min_iou, configs.loss.max_iou).clamp(0, 1)
+    loss_bce = F.binary_cross_entropy_with_logits(
+        scores2d.squeeze().masked_select(mask2d),
+        ious2d_scaled.masked_select(mask2d)
+    )
+
+
+    loss = loss_bce
+    # loss = w1 * loss_bce + w2 * loss_td + w3 * loss_refine + \
+    #                 w4 * loss_contrast + w5 * loss_offset
+
+
+
+    # out["vmask"] = vmask
+    return loss, out
 
 
 
@@ -101,4 +126,37 @@ def infer_CPL(output, configs): ## don't consider vmask
 
     return start_fracs, end_fracs
         
+def nms(moments, scores, topk=5, thresh=0.5):
+    from models.BAN import iou
 
+    scores, ranks = scores.sort(descending=True)
+    moments = moments[ranks]
+    suppressed = torch.zeros_like(ranks).bool()
+    numel = suppressed.numel()
+    count = 0
+    for i in range(numel - 1):
+        if suppressed[i]:
+            continue
+        mask = iou(moments[i + 1:], moments[i]) > thresh
+        suppressed[i + 1:][mask] = True
+        count += 1
+        if count == topk:
+            break
+    return moments[~suppressed]
+
+
+def infer_BAN(output, configs): ## don't consider vmask
+    num_clips = configs.model.vlen
+    nms_thresh=0.7
+
+    score_pred = output['final_pred'].sigmoid()
+    prop_s_e = output['coarse_pred_round']
+    res = []
+    for idx, score1d in enumerate(score_pred):
+        candidates = prop_s_e[idx] / num_clips
+        moments = nms(candidates, score1d, topk=1, thresh=nms_thresh)
+        res.append(moments[0])
+    res = torch.stack(res)
+    res = res.cpu().numpy()
+    return res
+        

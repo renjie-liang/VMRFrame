@@ -5,7 +5,6 @@ import numpy as np
 from utils.data_utils import pad_seq, pad_char_seq, pad_video_seq
 from utils.utils import convert_length_to_mask, gene_soft_label
 
-
 class Dataset(torch.utils.data.Dataset):
     def __init__(self, dataset, video_features, max_len):
         super(Dataset, self).__init__()
@@ -15,6 +14,7 @@ class Dataset(torch.utils.data.Dataset):
         self.video_features = video_features
         self.max_len = max_len
     def __getitem__(self, index):
+        index = index + 1679
         record = self.dataset[index]
         video_feature = self.video_features[record['vid']]
         s_ind, e_ind = int(record['s_ind']), int(record['e_ind'])
@@ -260,7 +260,71 @@ def collate_fn_CPL(data):
 
 
 
+def random_interval(se, proportion):
+    import random
+    s, e = se
+    duration_ = proportion*(e - s)
+    e_random = e - duration_
+    s_ = s + (e_random-s) * random.random()
+    e_ = s_ + duration_
+    return [s_, e_]
 
+def collate_fn_BAN(data):
+    from models.BAN import iou
+    records, vfeats_raw, word_ids, char_ids, s_inds, e_inds, max_lens = zip(*data)
+    max_vlen = max_lens[0]
+
+    # process word ids
+    word_ids, _ = pad_seq(word_ids)
+    word_ids = torch.as_tensor(word_ids, dtype=torch.int64)
+    tmask = (torch.zeros_like(word_ids) != word_ids).float()
+    tlens = torch.sum(tmask, dim=1, keepdim=False, dtype=torch.int64)
+    vfeats, vlens = pad_video_seq(vfeats_raw, max_vlen)
+    vfeats = torch.stack(vfeats)
+    # vfeats = torch.as_tensor(vfeats, dtype=torch.float32)
+    vlens = torch.as_tensor(vlens, dtype=torch.int64)
+
+    # process labels
+    num_clips = max_vlen
+    start_end_offset, iou2ds = [], []
+    for recor in records:
+        duration = recor["duration"]
+        moment = recor["s_time"], recor["e_time"]
+        moment = random_interval(moment, 0.7)
+        moment = torch.as_tensor(moment)
+        
+        iou2d = torch.ones(num_clips, num_clips)
+        grids = iou2d.nonzero(as_tuple=False)    
+        candidates = grids * duration / num_clips
+        iou2d = iou(candidates, moment).reshape(num_clips, num_clips)
+
+
+        se_offset = torch.ones(num_clips, num_clips, 2)  # not divided by number of clips
+        se_offset[:, :, 0] = ((moment[0] - candidates[:, 0]) / duration).reshape(num_clips, num_clips)
+        se_offset[:, :, 1] = ((moment[1] - candidates[:, 1]) / duration).reshape(num_clips, num_clips)
+
+        start_end_offset.append(se_offset)
+        iou2ds.append(iou2d)
+
+    iou2ds = torch.stack(iou2ds)
+    start_end_offset = torch.stack(start_end_offset)
+    data = {'word_ids': word_ids,
+            'tlens': tlens,
+            'vfeats': vfeats,
+            'vlens': vlens,
+            'start_end_offset': start_end_offset,
+
+            # 'timestamp': timestamp,
+            'iou2ds': iou2ds,
+            # 'start_end_gt': start_end_gt,
+            # 's_e_distribution': s_e_distribution,
+            # 'duration': duration,
+            # 'mask2d_contrast': mask2d_contrast,
+            # 'vname': vname,
+            # 'sentence': sentence
+            }
+
+    return records, data
 
 def get_loader(dataset, video_features, configs, loadertype):
     data_set = Dataset(dataset=dataset, video_features=video_features, max_len=configs.model.vlen)

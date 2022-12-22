@@ -230,6 +230,7 @@ def gene_soft_label(sidx, eidx, vlen, L, alpha):
 
 
 from models.model import SeqPAN, CPL
+from models.BAN import BAN
 def build_load_model(configs, args, word_vector):
     model = eval(configs.model.name)(configs, word_vector)
     if torch.cuda.device_count() > 1:
@@ -239,4 +240,9 @@ def build_load_model(configs, args, word_vector):
     if args.checkpoint:
         model_checkpoint = torch.load(args.checkpoint)
         model.load_state_dict(model_checkpoint)
+
+    # for m in model.modules():
+    #     if isinstance(m, (nn.Conv2d, nn.Linear)):
+    #         nn.init.xavier_uniform_(m.weight)
+
     return model

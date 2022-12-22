@@ -75,7 +75,8 @@ def lossfun_loc(start_logits, end_logits, s_labels, e_labels, vmask):
 #     return start_frac, end_frac
 
 
-def append_ious(ious, records, start_fracs, end_fracs):
+def append_ious(ious, records, props_frac):
+    start_fracs, end_fracs = props_frac[:, 0], props_frac[:, 1]
     for record, sp, ep in zip(records, start_fracs, end_fracs):
         sta_gtfrac = record['s_time']/record["duration"]
         end_gtfrac = record['e_time']/record["duration"]
