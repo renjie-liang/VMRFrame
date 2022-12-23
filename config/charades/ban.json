@@ -5,7 +5,7 @@
     "ckpt_dir": "./ckpt",
     "cache_dir" : "./data_pkl/",
 
-    "feature_path": "/storage_fast/rjliang/charades/i3d",
+    "feature_path": "/storage_fast/rjliang/charades/i3d_finetuned",
     "glove_path": "/storage_fast/rjliang/glove/glove.6B.300d.txt",
     "train_path": "data/charades_clean/train.json",
     "test_path": "data/charades_clean/test.json",
@@ -13,16 +13,16 @@
   },
 
   "train": {
-    "epochs": 30,
+    "epochs": 20,
     "batch_size": 1,
-    "lr": 0.0002,
+    "lr": 0.001,
     "warmup_proportion": 0.01,
     "clip_norm": 1.0
   },
 
   "model": {
     "name": "BAN",
-    "vlen": 64,
+    "vlen": 48,
     "vdim": 1024,
     "dim": 256,
     "lstm_layer": 1,
@@ -54,7 +54,11 @@
     "NAME" : "bce_loss",
     "min_iou": 0.5,
     "max_iou": 1.0,
-    "hidden_size": 512
+    "hidden_size": 512,
+    "bce": 2.0,
+    "td": 0.2,
+    "refine": 3.0,
+    "contrast": 0.2,
+    "offset": 3.0
   }
 }
-

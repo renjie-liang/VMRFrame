@@ -14,6 +14,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from transformers import BertModel
 
 
 
@@ -27,11 +28,25 @@ class QueryEncoder(nn.Module):
         if pre_train_weights is not None:
             self.embedding.weight.data.copy_(torch.from_numpy(pre_train_weights))
             self.embedding.weight.requires_grad = False
+
+            self.pad_vec = nn.Parameter(torch.zeros(size=(1, embed_dim), dtype=torch.float32), requires_grad=False)
+            unk_vec = torch.empty(size=(1, embed_dim), requires_grad=True, dtype=torch.float32)
+            nn.init.xavier_uniform_(unk_vec)
+            self.unk_vec = nn.Parameter(unk_vec, requires_grad=True)
+            self.glove_vec = nn.Parameter(torch.tensor(pre_train_weights, dtype=torch.float32), requires_grad=False)
+
+
         self.biLSTM = nn.LSTM(embed_dim, self.hidden_dim, num_layers, dropout=0.0,
                               batch_first=True, bidirectional=bidirection)
 
     def forward(self, query_tokens, query_length):
-        query_embedding = self.embedding(query_tokens)
+
+        # query_embedding = self.embedding(query_tokens)
+
+        query_embedding = F.embedding(query_tokens, torch.cat([self.pad_vec, self.unk_vec, self.glove_vec], dim=0),
+                                padding_idx=0)
+
+
         query_embedding = pack_padded_sequence(query_embedding,
                                                query_length.to('cpu').data.numpy(),
                                                batch_first=True,
@@ -41,6 +56,8 @@ class QueryEncoder(nn.Module):
         # c_n and h_n: (num_directions, batch, hidden_size)
         # out: (batch, seq_len, num_directions, hidden_size)
         output, query_length_ = pad_packed_sequence(output, batch_first=True)
+
+        # words_feat, _ = self.bert(input_ids= bert_id, attention_mask=bert_mask,return_dict=False)
 
         q_vector_list = []
         batch_size = query_length_.size(0)
@@ -680,69 +697,6 @@ def temporal_difference_loss(td, position_mask):
     loss = -numerator / (denominator + 1e-8)
     return loss.mean()
     
-
-class MainLoss(nn.Module):
-    def __init__(self, min_iou, max_iou, temperature=0.5):
-        super().__init__()
-        self.t = temperature
-        self.min_iou = min_iou
-        self.max_iou = max_iou
-        self.contrast_loss = ContrastLoss()
-        self.offset_loss = nn.SmoothL1Loss()
-
-    def scale(self, iou):
-        return (iou - self.min_iou) / (self.max_iou - self.min_iou)
-
-    def forward(self, out_feature, data, td):
-        scores2d, ious2d, mask2d, s_e_distribution, mask2d_contrast, map2d_proj, \
-        sen_proj, pred_s_e_round, final_pred, offset_pred, offset_gt = \
-            out_feature['tmap'], data['iou2d'], out_feature['map2d_mask'], data['s_e_distribution'], \
-            data['mask2d_contrast'], out_feature['map2d_proj'], out_feature['sen_proj'], \
-            out_feature['coarse_pred_round'], out_feature['final_pred'], out_feature['offset'], \
-            out_feature['offset_gt']
-        ious2d_scaled = self.scale(ious2d).clamp(0, 1)
-        loss_bce = F.binary_cross_entropy_with_logits(
-            scores2d.squeeze().masked_select(mask2d),
-            ious2d_scaled.masked_select(mask2d)
-        )
-
-        td_mask = s_e_distribution.sum(dim=1)
-        loss_td = temporal_difference_loss(td, td_mask)
-
-        mask2d_pos = mask2d_contrast[:, 0, :, :]
-        mask2d_neg = mask2d_contrast[:, 1, :, :]
-        mask2d_pos = torch.logical_and(mask2d, mask2d_pos)
-        mask2d_neg = torch.logical_and(mask2d, mask2d_neg)
-        loss_contrast = self.contrast_loss(sen_proj, map2d_proj, mask2d_pos, mask2d_neg)
-
-        ious_gt = []
-        for i in range(ious2d_scaled.size(0)):
-            start = pred_s_e_round[i][:, 0]
-            end = pred_s_e_round[i][:, 1] - 1
-            final_ious = ious2d_scaled[i][start, end]
-            ious_gt.append(final_ious)
-        ious_gt = torch.stack(ious_gt)
-
-        loss_refine = F.binary_cross_entropy_with_logits(
-            final_pred.squeeze().flatten(),
-            ious_gt.flatten()
-        )
-
-        offset_pred = offset_pred.reshape(-1, 2)
-        offset_gt = offset_gt.reshape(-1, 2)
-        loss_offset = 0.
-        loss_offset += self.offset_loss(offset_pred[:, 0], offset_gt[:, 0])
-        loss_offset += self.offset_loss(offset_pred[:, 1], offset_gt[:, 1])
-
-        loss = {'loss_bce': loss_bce,
-                'loss_refine': loss_refine,
-                'loss_td': loss_td,
-                'loss_contrast': loss_contrast,
-                'loss_offset': loss_offset
-                }
-        return loss
-    
-
 # ----------------------------------------
 
 
@@ -797,7 +751,7 @@ class BAN(nn.Module):
             nn.Linear(cfg.model.contrast_dim, cfg.model.contrast_dim)
         )
         self.prop_interact = Adaptive_Prop_Interaction(cfg)
-        self.loss = MainLoss(cfg.loss.min_iou, cfg.loss.max_iou)
+        self.bert = BertModel.from_pretrained('bert-base-cased')
 
     def forward(self, data_visual, data_text, video_seq_len, text_seq_len, offset_gt):
         # data_visual, data_text, video_seq_len, text_seq_len, offset_gt = \
@@ -811,7 +765,7 @@ class BAN(nn.Module):
         # boundary prediction
         out = self.boundary_aware(fuse_feature)
         hidden_b, hidden_c = out['feature']
-        td = out['td']  # (bs, seq)
+        # td = out['td']  # (bs, seq)
         # proposal generation
         map2d_s_e, _ = self.boundary_aggregation(hidden_b.permute(0, 2, 1), hidden_b.permute(0, 2, 1))
         map2d_c, map2d_mask = self.content_aggregation(fuse_feature.permute(0, 2, 1))
@@ -851,6 +805,7 @@ class BAN(nn.Module):
                'final_pred': pred,
                'offset': offset,
                'offset_gt': offset_gt,
+               'td':  out['td'],
                }
 
         # loss = self.loss(out, data, td)

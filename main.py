@@ -61,7 +61,6 @@ lossmeter = AverageMeter()
 if not args.eval:
     # build model
     model = build_load_model(configs, args, dataset['word_vector'])
-
     optimizer, scheduler = build_optimizer_and_scheduler(model, configs=configs)
     best_r1i7, global_step, mi_val_best = -1.0, 0, 0
     for epoch in range(configs.train.epochs):
@@ -74,7 +73,7 @@ if not args.eval:
             loss, output = train_engine(model, data, configs)
 
             lossmeter.update(loss.item())
-            tbar.set_description("TRAIN {:2d}|{:2d} LOSS:{:.4f}".format(epoch + 1, configs.train.epochs, lossmeter.avg))
+            tbar.set_description("TRAIN {:2d}|{:2d} LOSS:{:.6f}".format(epoch + 1, configs.train.epochs, lossmeter.avg))
 
             optimizer.zero_grad()
             loss.backward()
@@ -98,10 +97,8 @@ if not args.eval:
             records = data[0]
             train_engine = eval("train_engine_" + configs.model.name)
             loss, output = train_engine(model, data, configs)
-            
             lossmeter.update(loss.item())
-            tbar.set_description("TEST  {:2d}|{:2d} LOSS:{:.4f}".format(epoch + 1, configs.train.epochs, lossmeter.avg))
-            
+            tbar.set_description("TEST  {:2d}|{:2d} LOSS:{:.6f}".format(epoch + 1, configs.train.epochs, lossmeter.avg))
             infer_fun = eval("infer_" + configs.model.name)
             props_frac = infer_fun(output, configs)
             ious = append_ious(ious, records, props_frac)
@@ -120,8 +117,7 @@ if args.eval:
     tbar, ious = tqdm(test_loader), []
     for data in tbar:
         records = data[0]
-        print(records)
-
+        # print(records)
         train_engine = eval("train_engine_" + configs.model.name)
         loss, output = train_engine(model, data, configs)
         lossmeter.update(loss.item())

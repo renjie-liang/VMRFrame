@@ -6,24 +6,76 @@ from utils.data_utils import pad_seq, pad_char_seq, pad_video_seq
 from utils.utils import convert_length_to_mask, gene_soft_label
 
 class Dataset(torch.utils.data.Dataset):
-    def __init__(self, dataset, video_features, max_len):
+    def __init__(self, dataset, video_features, max_vlen):
         super(Dataset, self).__init__()
         self.dataset = dataset
         self.dataset.sort(key=lambda x:x['vid'])
 
         self.video_features = video_features
-        self.max_len = max_len
+        self.max_vlen = max_vlen
     def __getitem__(self, index):
-        index = index + 1679
+        index = index 
         record = self.dataset[index]
-        video_feature = self.video_features[record['vid']]
-        s_ind, e_ind = int(record['s_ind']), int(record['e_ind'])
-        word_ids, char_ids = record['w_ids'], record['c_ids']
-        max_len = self.max_len
-        return record, video_feature, word_ids, char_ids, s_ind, e_ind, max_len
+        vfeat = self.video_features[record['vid']]
+        sidx, eidx = int(record['s_ind']), int(record['e_ind'])
+        words_id, char_ids = record['w_ids'], record['c_ids']
+        bert_id, bert_mask = record["bert_id"], record["bert_mask"]
+        dist_idx = self.get_dist_idx(sidx, eidx)
+        map2d_contrasts = self.get_map2d_contrast(sidx, eidx)
+        res = {"record": record,
+               "max_vlen": self.max_vlen,
+               "vfeat": vfeat,
+               "words_id": words_id,
+               "dist_idx": dist_idx,
+               "map2d_contrast": map2d_contrasts
+            }
+        return res
+        # record, video_feature, word_ids, char_ids, s_ind, e_ind, max_len, bert_id, bert_mask
 
     def __len__(self):
         return len(self.dataset)
+
+    def get_dist_idx(self, sidx, eidx):
+        visual_len = self.max_vlen
+        dist_idx = np.zeros((2, visual_len), dtype=np.float32)
+        gt_s, gt_e = sidx, eidx
+        gt_length = gt_e - gt_s + 1  # make sure length > 0
+        dist_idx[0, :] = np.exp(-0.5 * np.square((np.arange(visual_len) - gt_s) / (0.1 * gt_length)))
+        dist_idx[1, :] = np.exp(-0.5 * np.square((np.arange(visual_len) - gt_e) / (0.1 * gt_length)))
+        dist_idx[0, dist_idx[0, :] >= 0.8] = 1.
+        dist_idx[0, dist_idx[0, :] < 0.1353] = 0.
+        dist_idx[1, dist_idx[1, :] >= 0.8] = 1.
+        dist_idx[1, dist_idx[1, :] < 0.1353] = 0.
+        if (dist_idx[0, :] > 0.4).sum() == 0:
+            p = np.exp(-0.5 * np.square((np.arange(visual_len) - gt_s) / (0.1 * gt_length)))
+            idx = np.argsort(p)
+            dist_idx[0, idx[-1]] = 1.
+        if (dist_idx[1, :] > 0.4).sum() == 0:
+            p = np.exp(-0.5 * np.square((np.arange(visual_len) - gt_e) / (0.1 * gt_length)))
+            idx = np.argsort(p)
+            dist_idx[1, idx[-1]] = 1.
+        dist_idx = torch.from_numpy(dist_idx)
+        return dist_idx
+
+    def get_map2d_contrast(self, sidx, eidx):
+        num_clips = self.max_vlen
+
+        x, y = np.arange(0, sidx + 1., dtype=int), np.arange(eidx - 1, num_clips, dtype=int)
+        mask2d_pos = np.zeros((num_clips, num_clips), dtype=bool)
+        mask_idx = np.array(np.meshgrid(x, y)).T.reshape(-1, 2)
+        mask2d_pos[mask_idx[:, 0], mask_idx[:, 1]] = 1
+
+        mask2d_neg = np.zeros((num_clips, num_clips), dtype=bool)
+        for offset in range(sidx):
+            i, j = range(0, sidx - offset), range(offset, sidx)
+            mask2d_neg[i, j] = 1
+        for offset in range(eidx):
+            i, j = range(eidx, num_clips - offset), range(eidx + offset, num_clips)
+            mask2d_neg[i, j] = 1
+        if np.sum(mask2d_neg) == 0:
+            mask2d_neg[0, 0] = 1
+            mask2d_neg[num_clips - 1, num_clips - 1] = 1
+        return torch.tensor(np.array([mask2d_pos, mask2d_neg]))
 
 
 def collate_fn_VSL(data):
@@ -72,7 +124,6 @@ def collate_fn_VSL(data):
 
 
 def collate_fn_SeqPAN(data):
-
     records, vfeats_raw, word_ids, char_ids, s_inds, e_inds, max_lens = zip(*data)
     max_len = max_lens[0]
     B = len(data)
@@ -89,12 +140,10 @@ def collate_fn_SeqPAN(data):
     vfeat_lens = np.asarray(vfeat_lens, dtype=np.int32)  # (B, )
 
     # process labels
-
     s_labels = np.zeros(shape=[B, max_len], dtype=np.float32)
     e_labels = np.zeros(shape=[B, max_len], dtype=np.float32)
     m_labels = np.zeros(shape=[B, max_len], dtype=np.int32)  # (B, v_seq_len)
     new_m_labels = np.zeros(shape=[B, max_len, 4], dtype=np.float32)  # (B, v_seq_len)
-
     new_s_labels, new_e_labels, new_match_labels = [], [], []
 
     for idx in range(B):
@@ -167,7 +216,6 @@ def collate_fn_SeqPAN(data):
 
 
 def collate_fn_CPL(data):
-
     records, vfeats_raw, word_ids, char_ids, s_inds, e_inds, max_lens = zip(*data)
     max_len = max_lens[0]
     B = len(data)
@@ -269,20 +317,39 @@ def random_interval(se, proportion):
     e_ = s_ + duration_
     return [s_, e_]
 
-def collate_fn_BAN(data):
+
+    # res = {"record": record,
+    #         "max_len": max_len,
+
+    #         "vfeat": vfeat,
+    #         "word_ids": word_ids,
+    #         "dist_idx": dist_idx,
+
+def collate_fn_BAN(datas):
     from models.BAN import iou
-    records, vfeats_raw, word_ids, char_ids, s_inds, e_inds, max_lens = zip(*data)
-    max_vlen = max_lens[0]
+    records, vfeats, words_ids =  [], [], []
+    dist_idxs, map2d_contrasts = [], []
+    max_vlen = datas[0]["max_vlen"]
+    for d in datas:
+        records.append(d["record"])
+        vfeats.append(d["vfeat"])
+        words_ids.append(d["words_id"])
+        dist_idxs.append(d["dist_idx"])
+        map2d_contrasts.append(d["map2d_contrast"])
+        
+    # word_ids = data["word_ids"]
+    # bert_id = torch.vstack(data["bert_id"])
+    # bert_mask = torch.vstack(data["bert_mask"])
 
     # process word ids
-    word_ids, _ = pad_seq(word_ids)
-    word_ids = torch.as_tensor(word_ids, dtype=torch.int64)
-    tmask = (torch.zeros_like(word_ids) != word_ids).float()
+    words_ids, _ = pad_seq(words_ids)
+    words_ids = torch.as_tensor(words_ids, dtype=torch.int64)
+    tmask = (torch.zeros_like(words_ids) != words_ids).float()
     tlens = torch.sum(tmask, dim=1, keepdim=False, dtype=torch.int64)
-    vfeats, vlens = pad_video_seq(vfeats_raw, max_vlen)
+    vfeats, vlens = pad_video_seq(vfeats, max_vlen)
     vfeats = torch.stack(vfeats)
-    # vfeats = torch.as_tensor(vfeats, dtype=torch.float32)
     vlens = torch.as_tensor(vlens, dtype=torch.int64)
+    dist_idxs = torch.stack(dist_idxs)
 
     # process labels
     num_clips = max_vlen
@@ -298,7 +365,6 @@ def collate_fn_BAN(data):
         candidates = grids * duration / num_clips
         iou2d = iou(candidates, moment).reshape(num_clips, num_clips)
 
-
         se_offset = torch.ones(num_clips, num_clips, 2)  # not divided by number of clips
         se_offset[:, :, 0] = ((moment[0] - candidates[:, 0]) / duration).reshape(num_clips, num_clips)
         se_offset[:, :, 1] = ((moment[1] - candidates[:, 1]) / duration).reshape(num_clips, num_clips)
@@ -308,18 +374,21 @@ def collate_fn_BAN(data):
 
     iou2ds = torch.stack(iou2ds)
     start_end_offset = torch.stack(start_end_offset)
-    data = {'word_ids': word_ids,
+    map2d_contrasts = torch.stack(map2d_contrasts)
+    data = {'words_ids': words_ids,
             'tlens': tlens,
             'vfeats': vfeats,
             'vlens': vlens,
             'start_end_offset': start_end_offset,
+            # 'bert_id': bert_id,
+            # 'bert_mask': bert_mask,
 
             # 'timestamp': timestamp,
             'iou2ds': iou2ds,
             # 'start_end_gt': start_end_gt,
-            # 's_e_distribution': s_e_distribution,
+            'dist_idxs': dist_idxs,
             # 'duration': duration,
-            # 'mask2d_contrast': mask2d_contrast,
+            'map2d_contrasts': map2d_contrasts,
             # 'vname': vname,
             # 'sentence': sentence
             }
@@ -327,7 +396,7 @@ def collate_fn_BAN(data):
     return records, data
 
 def get_loader(dataset, video_features, configs, loadertype):
-    data_set = Dataset(dataset=dataset, video_features=video_features, max_len=configs.model.vlen)
+    data_set = Dataset(dataset=dataset, video_features=video_features, max_vlen=configs.model.vlen)
     if loadertype == "train":
         shuffle = True
     else:
