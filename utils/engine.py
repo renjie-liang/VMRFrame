@@ -5,6 +5,8 @@ import torch.nn.functional as F
 import torch.nn as nn
 
 
+
+
 def train_engine_SeqPAN(model, data, configs):
     device = configs.device
     _, vfeats, vmask, word_ids, char_ids, tmask, s_labels, e_labels, m_labels = data
@@ -27,6 +29,7 @@ def train_engine_SeqPAN(model, data, configs):
 
     output["vmask"] = vmask
     return loss, output
+
 
 
 
@@ -56,8 +59,76 @@ def scale(iou, min_iou, max_iou):
     return (iou - min_iou) / (max_iou - min_iou)
 
 
+# def train_engine_BAN(model, indata, configs):
+#     # _, data = indata
+#     data, info = indata
+#     data = {key: value.to(configs.device) for key, value in data.items()}
+#     # out = model(data['vfeats'], data['words_ids'], data['vlens'], data['tlens'], data['start_end_offset'])
+#     out = model(data)
+
+#     # loss bce
+#     scores2d, ious2d, mask2d = out['tmap'], data['iou2d'], out['map2d_mask'],
+#     ious2d_scaled = scale(ious2d, configs.loss.min_iou, configs.loss.max_iou).clamp(0, 1)
+#     loss_bce = F.binary_cross_entropy_with_logits(
+#         scores2d.squeeze().masked_select(mask2d),
+#         ious2d_scaled.masked_select(mask2d)
+#     )
+
+#     # loss refine
+#     final_pred = out['final_pred']
+#     pred_s_e_round = out['coarse_pred_round']
+#     ious_gt = []
+#     for i in range(ious2d_scaled.size(0)):
+#         start = pred_s_e_round[i][:, 0]
+#         end = pred_s_e_round[i][:, 1] - 1
+#         final_ious = ious2d_scaled[i][start, end]
+#         ious_gt.append(final_ious)
+#     ious_gt = torch.stack(ious_gt)
+
+#     loss_refine = F.binary_cross_entropy_with_logits(
+#         final_pred.squeeze().flatten(),
+#         ious_gt.flatten()
+#     )
+
+#     # distribute differe
+#     from models.BAN import temporal_difference_loss
+
+#     dist_idxs =  data['s_e_distribution']
+#     td = out['td']
+#     td_mask = dist_idxs.sum(dim=1)
+#     loss_td = temporal_difference_loss(td, td_mask)
+
+
+#     # offset loss
+#     offset_pred, offset_gt = out['offset'], out['offset_gt'] 
+#     offset_pred = offset_pred.reshape(-1, 2)
+#     offset_gt = offset_gt.reshape(-1, 2)
+#     offset_loss_fun = nn.SmoothL1Loss()
+#     loss_offset = offset_loss_fun(offset_pred[:, 0], offset_gt[:, 0]) + offset_loss_fun(offset_pred[:, 1], offset_gt[:, 1])
+
+
+#     # contrast loss
+#     from models.BAN import ContrastLoss
+
+#     map2d_contrasts = data['mask2d_contrast']
+#     sen_proj, map2d_proj = out['sen_proj'],  out['map2d_proj']
+#     mask2d_pos = map2d_contrasts[:, 0, :, :]
+#     mask2d_neg = map2d_contrasts[:, 1, :, :]
+#     mask2d_pos = torch.logical_and(mask2d, mask2d_pos)
+#     mask2d_neg = torch.logical_and(mask2d, mask2d_neg)
+#     loss_contrast = ContrastLoss()(sen_proj, map2d_proj, mask2d_pos, mask2d_neg)
+
+
+#     loss = loss_bce * configs.loss.bce \
+#          + loss_refine * configs.loss.refine \
+#          + loss_td * configs.loss.td \
+#          + loss_offset * configs.loss.offset \
+#          + loss_contrast * configs.loss.contrast
+#     return loss, out
+
+
 def train_engine_BAN(model, indata, configs):
-    _, data = indata
+    data, _ = indata
     data = {key: value.to(configs.device) for key, value in data.items()}
     out = model(data['vfeats'], data['words_ids'], data['vlens'], data['tlens'], data['start_end_offset'])
 

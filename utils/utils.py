@@ -110,7 +110,7 @@ def apply_to_sample(f, sample):
 
 
 def convert_length_to_mask(lengths, max_len):
-    lengths = torch.from_numpy(lengths)
+    # lengths = torch.from_numpy(lengths)
     # max_len = lengths.max().item()
     mask = torch.arange(max_len).expand(lengths.size()[0], max_len) < lengths.unsqueeze(1)
     mask = mask.float()
@@ -231,6 +231,8 @@ def gene_soft_label(sidx, eidx, vlen, L, alpha):
 
 from models.model import SeqPAN, CPL
 from models.BAN import BAN
+from models.BaseFast import BaseFast
+
 def build_load_model(configs, args, word_vector):
     model = eval(configs.model.name)(configs, word_vector)
     if torch.cuda.device_count() > 1:

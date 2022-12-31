@@ -176,6 +176,37 @@ def dataset_gen(data, vfeat_lens, word_dict, char_dict, max_pos_len, scope):
 
 def generate_dataset(configs, cache_path):
     vfeat_lens = get_vfeat_len(configs)
+    processor = CharadesProcessor()
+    train_data = processor.convert(configs.paths.train_path)
+    test_data = processor.convert(configs.paths.test_path)
+    if configs.paths.val_path == '':
+        data_list = [train_data, test_data]
+    else:
+        val_data = processor.convert(configs.paths.val_path)
+        data_list = [train_data, val_data, test_data]
+
+    # generate dataset
+    word_dict, char_dict, vectors = vocab_emb_gen(data_list, configs.paths.glove_path)
+    train_set = dataset_gen(train_data, vfeat_lens, word_dict, char_dict, configs.model.vlen, 'train') # ???? active
+    test_set = dataset_gen(test_data, vfeat_lens, word_dict, char_dict, configs.model.vlen, 'test')
+    if configs.paths.val_path == '':
+        val_set = None
+        n_val = 0 
+    else:
+        val_set = dataset_gen(val_data, vfeat_lens, word_dict, char_dict, configs.model.vlen, 'val')
+        n_val = len(val_set)
+
+    # save dataset
+    dataset = {'train_set': train_set, 'val_set': val_set, 'test_set': test_set, 'word_dict': word_dict,
+               'char_dict': char_dict, 'word_vector': vectors, 'n_train': len(train_set), 'n_val': n_val,
+               'n_test': len(test_set), 'n_words': len(word_dict), 'n_chars': len(char_dict)}
+    save_pickle(dataset, cache_path)
+    return dataset
+
+
+
+def generate_dataset_BAN(configs, cache_path):
+    vfeat_lens = get_vfeat_len(configs)
     # data_dir = os.path.join('data', 'dataset', configs.task + "_" + configs.suffix)
     # load data
     processor = CharadesProcessor()
@@ -208,5 +239,3 @@ def generate_dataset(configs, cache_path):
                'n_test': len(test_set), 'n_words': len(word_dict), 'n_chars': len(char_dict)}
     save_pickle(dataset, cache_path)
     return dataset
-
-    

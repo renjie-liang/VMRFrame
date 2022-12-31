@@ -75,15 +75,24 @@ def lossfun_loc(start_logits, end_logits, s_labels, e_labels, vmask):
 #     return start_frac, end_frac
 
 
-def append_ious(ious, records, props_frac):
-    start_fracs, end_fracs = props_frac[:, 0], props_frac[:, 1]
-    for record, sp, ep in zip(records, start_fracs, end_fracs):
-        sta_gtfrac = record['s_time']/record["duration"]
-        end_gtfrac = record['e_time']/record["duration"]
-        iou = calculate_iou([sp, ep], [sta_gtfrac, end_gtfrac])
+def append_ious(ious, se_gts, se_props):
+    # start_fracs, end_fracs = se_props[:, 0], se_props[:, 1]
+    for i in range(len(se_gts)):
+        gt_se = se_gts[i]
+        prop_se = se_props[i]
+        iou = calculate_iou(gt_se, prop_se)
         ious.append(iou)
-    
     return ious
+
+# def append_ious(ious, records, props_frac):
+#     start_fracs, end_fracs = props_frac[:, 0], props_frac[:, 1]
+#     for record, sp, ep in zip(records, start_fracs, end_fracs):
+#         sta_gtfrac = record['s_time']/record["duration"]
+#         end_gtfrac = record['e_time']/record["duration"]
+#         iou = calculate_iou([sp, ep], [sta_gtfrac, end_gtfrac])
+#         ious.append(iou)
+    
+#     return ious
 
 
 def get_i345_mi(ious):
@@ -98,7 +107,6 @@ def get_i345_mi(ious):
 
 
 # ### CPL
-
 def cal_nll_loss(logit, idx, mask, weights=None):
     eps = 0.1
     acc = (logit.max(dim=-1)[1]==idx).float()

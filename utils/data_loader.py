@@ -4,6 +4,8 @@ import torch
 import numpy as np
 from utils.data_utils import pad_seq, pad_char_seq, pad_video_seq
 from utils.utils import convert_length_to_mask, gene_soft_label
+import pandas as pd
+from tqdm import tqdm
 
 class Dataset(torch.utils.data.Dataset):
     def __init__(self, dataset, video_features, max_vlen):
@@ -18,7 +20,7 @@ class Dataset(torch.utils.data.Dataset):
         record = self.dataset[index]
         vfeat = self.video_features[record['vid']]
         sidx, eidx = int(record['s_ind']), int(record['e_ind'])
-        words_id, char_ids = record['w_ids'], record['c_ids']
+        words_id, chars_id = record['w_ids'], record['c_ids']
         bert_id, bert_mask = record["bert_id"], record["bert_mask"]
         dist_idx = self.get_dist_idx(sidx, eidx)
         map2d_contrasts = self.get_map2d_contrast(sidx, eidx)
@@ -26,11 +28,15 @@ class Dataset(torch.utils.data.Dataset):
                "max_vlen": self.max_vlen,
                "vfeat": vfeat,
                "words_id": words_id,
+               "chars_id": chars_id,
                "dist_idx": dist_idx,
-               "map2d_contrast": map2d_contrasts
+               "map2d_contrast": map2d_contrasts,
+               "se_time": [record["s_time"], record["e_time"]],
+               "se_frac": [record["s_time"]/record["duration"], record["e_time"]/record["duration"]]
             }
         return res
         # record, video_feature, word_ids, char_ids, s_ind, e_ind, max_len, bert_id, bert_mask
+
 
     def __len__(self):
         return len(self.dataset)
@@ -120,6 +126,65 @@ def collate_fn_VSL(data):
     tmask = (torch.zeros_like(word_ids) != word_ids).float()
     vmask = convert_length_to_mask(vfeat_lens)
     return records, vfeats, vmask, word_ids, char_ids, tmask, s_labels, e_labels, h_labels
+
+
+
+def collate_fn_BaseFast(datas):
+
+    records, se_times, se_fracs = [], [], []
+    vfeats, words_ids, chars_ids = [], [], []
+    dist_idxs, map2d_contrasts = [], []
+    max_vlen = datas[0]["max_vlen"]
+    for d in datas:
+        records.append(d["record"])
+        vfeats.append(d["vfeat"])
+        words_ids.append(d["words_id"])
+        dist_idxs.append(d["dist_idx"])
+        se_times.append(d["se_time"])
+        se_fracs.append(d["se_frac"])
+        chars_ids.append(d["chars_id"])
+
+    # process text
+    words_ids, _ = pad_seq(words_ids)
+    words_ids = torch.as_tensor(words_ids, dtype=torch.int64)
+    tmasks = (torch.zeros_like(words_ids) != words_ids).float()
+    
+    chars_ids, _ = pad_char_seq(chars_ids)
+    chars_ids = torch.as_tensor(chars_ids, dtype=torch.int64)
+
+    # process video 
+    vfeats, vlens = pad_video_seq(vfeats, max_vlen)
+    vfeats = torch.stack(vfeats)
+    vlens = torch.as_tensor(vlens, dtype=torch.int64)
+    vmasks = convert_length_to_mask(vlens, max_len=max_vlen)
+    
+    # process label
+    dist_idxs = torch.stack(dist_idxs)
+    
+    se_times = torch.as_tensor(se_times, dtype=torch.float)
+    se_fracs = torch.as_tensor(se_fracs, dtype=torch.float)
+
+
+    res = {'words_ids': words_ids,
+            'char_ids': chars_ids,
+            'tmasks': tmasks,
+
+            'vfeats': vfeats,
+            'vmasks': vmasks,
+
+            # labels
+            'dist_idxs': dist_idxs,
+
+            # evaluate
+            'se_times': se_times,
+            'se_fracs': se_fracs,
+            # 'vname': vname,
+            # 'sentence': sentence
+            }
+
+    return res, records
+    # records, vfeats, vmask, word_ids,
+    #  char_ids, tmask, s_labels, e_labels,
 
 
 
@@ -308,16 +373,6 @@ def collate_fn_CPL(data):
 
 
 
-def random_interval(se, proportion):
-    import random
-    s, e = se
-    duration_ = proportion*(e - s)
-    e_random = e - duration_
-    s_ = s + (e_random-s) * random.random()
-    e_ = s_ + duration_
-    return [s_, e_]
-
-
     # res = {"record": record,
     #         "max_len": max_len,
 
@@ -327,7 +382,7 @@ def random_interval(se, proportion):
 
 def collate_fn_BAN(datas):
     from models.BAN import iou
-    records, vfeats, words_ids =  [], [], []
+    records, se_times, se_fracs, vfeats, words_ids = [], [], [], [], []
     dist_idxs, map2d_contrasts = [], []
     max_vlen = datas[0]["max_vlen"]
     for d in datas:
@@ -336,6 +391,8 @@ def collate_fn_BAN(datas):
         words_ids.append(d["words_id"])
         dist_idxs.append(d["dist_idx"])
         map2d_contrasts.append(d["map2d_contrast"])
+        se_times.append(d["se_time"])
+        se_fracs.append(d["se_frac"])
         
     # word_ids = data["word_ids"]
     # bert_id = torch.vstack(data["bert_id"])
@@ -350,6 +407,8 @@ def collate_fn_BAN(datas):
     vfeats = torch.stack(vfeats)
     vlens = torch.as_tensor(vlens, dtype=torch.int64)
     dist_idxs = torch.stack(dist_idxs)
+    se_times = torch.as_tensor(se_times, dtype=torch.float)
+    se_fracs = torch.as_tensor(se_fracs, dtype=torch.float)
 
     # process labels
     num_clips = max_vlen
@@ -357,7 +416,6 @@ def collate_fn_BAN(datas):
     for recor in records:
         duration = recor["duration"]
         moment = recor["s_time"], recor["e_time"]
-        moment = random_interval(moment, 0.7)
         moment = torch.as_tensor(moment)
         
         iou2d = torch.ones(num_clips, num_clips)
@@ -375,7 +433,7 @@ def collate_fn_BAN(datas):
     iou2ds = torch.stack(iou2ds)
     start_end_offset = torch.stack(start_end_offset)
     map2d_contrasts = torch.stack(map2d_contrasts)
-    data = {'words_ids': words_ids,
+    res = {'words_ids': words_ids,
             'tlens': tlens,
             'vfeats': vfeats,
             'vlens': vlens,
@@ -389,11 +447,59 @@ def collate_fn_BAN(datas):
             'dist_idxs': dist_idxs,
             # 'duration': duration,
             'map2d_contrasts': map2d_contrasts,
+            'se_times': se_times,
+            'se_fracs': se_fracs,
             # 'vname': vname,
             # 'sentence': sentence
             }
 
-    return records, data
+    return res, records
+
+
+
+# from torch.nn.utils.rnn import pad_sequence
+# def collate_fn_BAN(batch):
+#     visual, text, visual_len, iou2d, duration, timestamp, mask2d_contrast, \
+#     start_end_offset, start_end_gt, map_gt, vname, sentence = zip(*batch)
+#     text_lens = [len(t) for t in text]
+#     text_lens = torch.as_tensor(np.array(text_lens), dtype=torch.int64)
+#     video_len = [len(v) for v in visual]
+#     video_len = torch.as_tensor(np.array(video_len), dtype=torch.int64)
+#     visual = torch.stack(visual)
+#     iou2d = torch.stack(iou2d)
+#     s_e_distribution = torch.stack(map_gt)
+#     mask2d_contrast = torch.stack(mask2d_contrast)
+
+#     start_end_offset = torch.stack(start_end_offset)
+#     start_end_gt = torch.stack(start_end_gt)
+
+#     pad_text = pad_sequence(text, batch_first=True, padding_value=0)
+#     timestamp = torch.stack(timestamp)
+#     duration = torch.as_tensor(np.array(duration), dtype=torch.float)
+
+
+#     vname = list(vname)
+#     sentence = list(sentence)
+
+#     data = {'q_feature': pad_text,
+#             'q_len': text_lens,
+#             'v_feature': visual,
+#             'v_len': video_len,
+#             'timestamp': timestamp,
+#             'iou2d': iou2d,
+#             'start_end_offset': start_end_offset,
+#             'start_end_gt': start_end_gt,
+#             's_e_distribution': s_e_distribution,
+#             'duration': duration,
+#             'mask2d_contrast': mask2d_contrast
+#             }
+#     info = {'vname': vname,
+#             'sentence': sentence}
+#     return data, info
+
+
+
+# from utils.dataset_charades import CharadesSTA
 
 def get_loader(dataset, video_features, configs, loadertype):
     data_set = Dataset(dataset=dataset, video_features=video_features, max_vlen=configs.model.vlen)

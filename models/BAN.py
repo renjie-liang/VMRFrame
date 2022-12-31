@@ -16,8 +16,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from transformers import BertModel
 
-
-
 class QueryEncoder(nn.Module):
     def __init__(self, vocab_size, hidden_dim=512, embed_dim=300, num_layers=1, 
                  bidirection=True, pre_train_weights=None):
@@ -41,10 +39,10 @@ class QueryEncoder(nn.Module):
 
     def forward(self, query_tokens, query_length):
 
-        # query_embedding = self.embedding(query_tokens)
+        query_embedding = self.embedding(query_tokens)
 
-        query_embedding = F.embedding(query_tokens, torch.cat([self.pad_vec, self.unk_vec, self.glove_vec], dim=0),
-                                padding_idx=0)
+        # query_embedding = F.embedding(query_tokens, torch.cat([self.pad_vec, self.unk_vec, self.glove_vec], dim=0),
+        #                         padding_idx=0)
 
 
         query_embedding = pack_padded_sequence(query_embedding,
@@ -697,10 +695,8 @@ def temporal_difference_loss(td, position_mask):
     loss = -numerator / (denominator + 1e-8)
     return loss.mean()
     
+
 # ----------------------------------------
-
-
-
 class BAN(nn.Module):
     def __init__(self, cfg, pre_train_emb=None):
         super(BAN, self).__init__()
@@ -753,9 +749,10 @@ class BAN(nn.Module):
         self.prop_interact = Adaptive_Prop_Interaction(cfg)
         self.bert = BertModel.from_pretrained('bert-base-cased')
 
+    # def forward(self, data):
+    #     data_visual, data_text, video_seq_len, text_seq_len, offset_gt = \
+    #         data['v_feature'], data['q_feature'], data['v_len'], data['q_len'],  data['start_end_offset']
     def forward(self, data_visual, data_text, video_seq_len, text_seq_len, offset_gt):
-        # data_visual, data_text, video_seq_len, text_seq_len, offset_gt = \
-        #     data['v_feature'], data['q_feature'], data['v_len'], data['q_len'],  data['start_end_offset']
         # feature encoder
         video_feature, clip_feature = self.visual_encoder(data_visual, video_seq_len, self.vlen)
         sentence_feature, word_feature = self.query_encoder(data_text, text_seq_len)
@@ -794,6 +791,9 @@ class BAN(nn.Module):
         # proposal interaction and matching score prediction
         prop_feature = self.prop_interact(prop_feature)
         pred = self.predictor2(prop_feature)
+
+
+        
         offset = self.predictor_offset(prop_feature)
 
         out = {'tmap': tmap,
