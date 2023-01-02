@@ -229,22 +229,33 @@ def gene_soft_label(sidx, eidx, vlen, L, alpha):
     return Ssoft, Esoft, Msoft
 
 
-from models.model import SeqPAN, CPL
-from models.BAN import BAN
-from models.BaseFast import BaseFast
 
-def build_load_model(configs, args, word_vector):
-    model = eval(configs.model.name)(configs, word_vector)
-    if torch.cuda.device_count() > 1:
-        print("Using", torch.cuda.device_count(), "GPUs")
-        model = torch.nn.DataParallel(model)
-    model  = model.to(configs.device)
-    if args.checkpoint:
-        model_checkpoint = torch.load(args.checkpoint)
-        model.load_state_dict(model_checkpoint)
+def generate_2dmask(L, pooling_counts=None):
+    if pooling_counts is None:
+        pooling_counts = [L//4, L//8, L//8]
 
-    # for m in model.modules():
-    #     if isinstance(m, (nn.Conv2d, nn.Linear)):
-    #         nn.init.xavier_uniform_(m.weight)
+    mask2d = torch.zeros(L, L, dtype=torch.bool)
+    mask2d[range(L), range(L)] = 1
+    stride, offset = 1, 0
+    for c in pooling_counts:
+        for _ in range(c):
+            # fill a diagonal line
+            offset += stride
+            i, j = range(0, L - offset), range(offset, L)
+            mask2d[i, j] = 1
+        stride *= 2
+    return mask2d
 
-    return model
+
+
+def iou_n1(candidates, gt):
+    '''
+    candidates: (prop_num, 2)
+    gt: (2, )
+    '''
+    start, end = candidates[:, 0], candidates[:, 1]
+    s, e = gt[0].float(), gt[1].float()
+    # print(s.dtype, start.dtype)
+    inter = end.min(e) - start.max(s)
+    union = end.max(e) - start.min(s)
+    return inter.clamp(min=0) / union

@@ -6,7 +6,7 @@
     "cache_dir" : "./data_pkl/",
 
     "feature_path": "/storage_fast/rjliang/charades/i3d_finetuned",
-    "glove_path": "/storage_fast/rjliang/glove/glove.6B.300d.txt",
+    "glove_path": "/storage_fast/rjliang/glove/glove.840B.300d.txt",
     "train_path": "data/charades_clean/train.json",
     "test_path": "data/charades_clean/test.json",
     "val_path": ""
@@ -28,8 +28,8 @@
     "lstm_layer": 1,
     "query_embed_dim": 300,
     "fuse_dim": 512,
-    "pooling_counts": [11, 6, 6],
-    "sparse_sample": true,
+    "pooling_counts": [11, 6, 6], # 11*1 + 6*2 + 4*4 < 48
+    "sparse_sample": True,
     "contrast_dim": 128,
     
     "num_heads": 4,

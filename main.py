@@ -12,11 +12,26 @@ from models.loss import append_ious, get_i345_mi
 from utils.data_gen import load_dataset
 from utils.data_utils import load_video_features
 from utils.utils import load_json, set_seed_config, build_optimizer_and_scheduler, plot_labels, AverageMeter, get_logger, save_best_model
-from utils.utils import build_load_model
 from utils.data_loader import get_loader
-from utils.engine import *
-from models.BaseFast import infer_BaseFast, train_engine_BaseFast
+from models import *
+
 torch.set_printoptions(precision=4, sci_mode=False)
+
+
+def build_load_model(configs, args, word_vector):
+    model = eval(configs.model.name)(configs, word_vector)
+    if torch.cuda.device_count() > 1:
+        print("Using", torch.cuda.device_count(), "GPUs")
+        model = torch.nn.DataParallel(model)
+    model  = model.to(configs.device)
+    if args.checkpoint:
+        model_checkpoint = torch.load(args.checkpoint)
+        model.load_state_dict(model_checkpoint)
+    # for m in model.modules():
+    #     if isinstance(m, (nn.Conv2d, nn.Linear)):
+    #         nn.init.xavier_uniform_(m.weight)
+
+    return model
 
 def parse_args():
     parser = argparse.ArgumentParser()

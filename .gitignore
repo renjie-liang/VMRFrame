@@ -2,5 +2,6 @@ imgs
 ckpt
 .vscode
 data_pkl
+figures
 
 *__pycache__

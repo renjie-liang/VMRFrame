@@ -25,10 +25,10 @@ def lossfun_match(m_probs, label_embs, m_labels, vmask):
     # NLLLoss
     # loss_fun = nn.NLLLoss()
     loss_fun = nn.CrossEntropyLoss()
+    m_labels = F.one_hot(m_labels).float()
     m_loss = loss_fun(m_probs, m_labels)
     # m_loss = loss_fun(m_probs.transpose(1,2), m_labels)
 
-    # m_labels = F.one_hot(m_labels)
     loss_per_sample = -torch.sum(m_labels * m_probs, dim=-1)
     m_loss =torch.sum(loss_per_sample * vmask, dim=-1) / (torch.sum(vmask, dim=-1) + 1e-12)
     m_loss = m_loss.mean()

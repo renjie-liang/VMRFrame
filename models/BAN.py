@@ -39,10 +39,9 @@ class QueryEncoder(nn.Module):
 
     def forward(self, query_tokens, query_length):
 
-        query_embedding = self.embedding(query_tokens)
-
-        # query_embedding = F.embedding(query_tokens, torch.cat([self.pad_vec, self.unk_vec, self.glove_vec], dim=0),
-        #                         padding_idx=0)
+        # query_embedding = self.embedding(query_tokens)
+        query_embedding = F.embedding(query_tokens, torch.cat([self.pad_vec, self.unk_vec, self.glove_vec], dim=0),
+                                padding_idx=0)
 
 
         query_embedding = pack_padded_sequence(query_embedding,
@@ -806,9 +805,207 @@ class BAN(nn.Module):
                'offset': offset,
                'offset_gt': offset_gt,
                'td':  out['td'],
+               'video_seq_len': video_seq_len
                }
 
         # loss = self.loss(out, data, td)
         return out
 
 
+
+def collate_fn_BAN(datas):
+    from utils.data_utils import pad_seq, pad_char_seq, pad_video_seq
+    from utils.utils import convert_length_to_mask
+    
+    records, se_times, se_fracs, vfeats, words_ids = [], [], [], [], []
+    dist_idxs, map2d_contrasts = [], []
+    max_vlen = datas[0]["max_vlen"]
+    for d in datas:
+        records.append(d["record"])
+        vfeats.append(d["vfeat"])
+        words_ids.append(d["words_id"])
+        dist_idxs.append(d["label1d"])
+        map2d_contrasts.append(d["map2d_contrast"])
+        se_times.append(d["se_time"])
+        se_fracs.append(d["se_frac"])
+        
+    # word_ids = data["word_ids"]
+    # bert_id = torch.vstack(data["bert_id"])
+    # bert_mask = torch.vstack(data["bert_mask"])
+
+    # process word ids
+    words_ids, _ = pad_seq(words_ids)
+    words_ids = torch.as_tensor(words_ids, dtype=torch.int64)
+    tmask = (torch.zeros_like(words_ids) != words_ids).float()
+    tlens = torch.sum(tmask, dim=1, keepdim=False, dtype=torch.int64)
+    vfeats, vlens = pad_video_seq(vfeats, max_vlen)
+    vfeats = torch.stack(vfeats)
+    vlens = torch.as_tensor(vlens, dtype=torch.int64)
+    dist_idxs = torch.stack(dist_idxs)
+    se_times = torch.as_tensor(se_times, dtype=torch.float)
+    se_fracs = torch.as_tensor(se_fracs, dtype=torch.float)
+
+    # process labels
+    num_clips = max_vlen
+    start_end_offset, iou2ds = [], []
+    for recor in records:
+        duration = recor["duration"]
+        moment = recor["s_time"], recor["e_time"]
+        moment = torch.as_tensor(moment)
+        
+        iou2d = torch.ones(num_clips, num_clips)
+        grids = iou2d.nonzero(as_tuple=False)    
+        candidates = grids * duration / num_clips
+        iou2d = iou(candidates, moment).reshape(num_clips, num_clips)
+
+        se_offset = torch.ones(num_clips, num_clips, 2)  # not divided by number of clips
+        se_offset[:, :, 0] = ((moment[0] - candidates[:, 0]) / duration).reshape(num_clips, num_clips)
+        se_offset[:, :, 1] = ((moment[1] - candidates[:, 1]) / duration).reshape(num_clips, num_clips)
+
+        start_end_offset.append(se_offset)
+        iou2ds.append(iou2d)
+
+    iou2ds = torch.stack(iou2ds)
+    start_end_offset = torch.stack(start_end_offset)
+    map2d_contrasts = torch.stack(map2d_contrasts)
+    res = {'words_ids': words_ids,
+            'tlens': tlens,
+            'vfeats': vfeats,
+            'vlens': vlens,
+            'start_end_offset': start_end_offset,
+            # 'bert_id': bert_id,
+            # 'bert_mask': bert_mask,
+
+            # 'timestamp': timestamp,
+            'iou2ds': iou2ds,
+            # 'start_end_gt': start_end_gt,
+            'dist_idxs': dist_idxs,
+            # 'duration': duration,
+            'map2d_contrasts': map2d_contrasts,
+            'se_times': se_times,
+            'se_fracs': se_fracs,
+            # 'vname': vname,
+            # 'sentence': sentence
+            }
+
+    return res, records
+
+
+
+
+
+def scale(iou, min_iou, max_iou):
+    return (iou - min_iou) / (max_iou - min_iou)
+
+
+def train_engine_BAN(model, data, configs):
+    data = {key: value.to(configs.device) for key, value in data.items()}
+    out = model(data['vfeats'], data['words_ids'], data['vlens'], data['tlens'], data['start_end_offset'])
+
+    # loss bce
+    scores2d, ious2d, mask2d = out['tmap'], data['iou2ds'], out['map2d_mask'],
+    ious2d_scaled = scale(ious2d, configs.loss.min_iou, configs.loss.max_iou).clamp(0, 1)
+    loss_bce = F.binary_cross_entropy_with_logits(
+        scores2d.squeeze().masked_select(mask2d),
+        ious2d_scaled.masked_select(mask2d)
+    )
+
+    # loss refine
+    final_pred = out['final_pred']
+    pred_s_e_round = out['coarse_pred_round']
+    ious_gt = []
+    for i in range(ious2d_scaled.size(0)):
+        start = pred_s_e_round[i][:, 0]
+        end = pred_s_e_round[i][:, 1] - 1
+        final_ious = ious2d_scaled[i][start, end]
+        ious_gt.append(final_ious)
+    ious_gt = torch.stack(ious_gt)
+
+    loss_refine = F.binary_cross_entropy_with_logits(
+        final_pred.squeeze().flatten(),
+        ious_gt.flatten()
+    )
+
+    # distribute differe
+    from models.BAN import temporal_difference_loss
+
+    dist_idxs =  data['dist_idxs']
+    td = out['td']
+    td_mask = dist_idxs.sum(dim=1)
+    loss_td = temporal_difference_loss(td, td_mask)
+
+
+    # offset loss
+    offset_pred, offset_gt = out['offset'], out['offset_gt'] 
+    offset_pred = offset_pred.reshape(-1, 2)
+    offset_gt = offset_gt.reshape(-1, 2)
+    offset_loss_fun = nn.SmoothL1Loss()
+    loss_offset = offset_loss_fun(offset_pred[:, 0], offset_gt[:, 0]) + offset_loss_fun(offset_pred[:, 1], offset_gt[:, 1])
+
+
+    # contrast loss
+    from models.BAN import ContrastLoss
+
+    map2d_contrasts = data['map2d_contrasts']
+    sen_proj, map2d_proj = out['sen_proj'],  out['map2d_proj']
+    mask2d_pos = map2d_contrasts[:, 0, :, :]
+    mask2d_neg = map2d_contrasts[:, 1, :, :]
+    mask2d_pos = torch.logical_and(mask2d, mask2d_pos)
+    mask2d_neg = torch.logical_and(mask2d, mask2d_neg)
+    loss_contrast = ContrastLoss()(sen_proj, map2d_proj, mask2d_pos, mask2d_neg)
+
+
+    loss = loss_bce * configs.loss.bce \
+         + loss_refine * configs.loss.refine \
+         + loss_td * configs.loss.td \
+         + loss_offset * configs.loss.offset \
+         + loss_contrast * configs.loss.contrast
+    return loss, out
+
+
+
+
+def nms(moments, scores, topk=5, thresh=0.5):
+    from models.BAN import iou
+
+    scores, ranks = scores.sort(descending=True)
+    moments = moments[ranks]
+    suppressed = torch.zeros_like(ranks).bool()
+    numel = suppressed.numel()
+    count = 0
+    for i in range(numel - 1):
+        if suppressed[i]:
+            continue
+        mask = iou(moments[i + 1:], moments[i]) > thresh
+        suppressed[i + 1:][mask] = True
+        count += 1
+        if count == topk:
+            break
+    return moments[~suppressed]
+
+# def infer_BAN(output, configs): ## don't consider vmask
+#     num_clips = configs.model.vlen
+#     nms_thresh=0.7
+
+#     score_pred = output['final_pred'].sigmoid()
+#     prop_s_e = output['coarse_pred_round']
+#     res = []
+#     for idx, score1d in enumerate(score_pred):
+#         candidates = prop_s_e[idx] / num_clips
+#         moments = nms(candidates, score1d, topk=1, thresh=nms_thresh)
+#         res.append(moments[0])
+#     res = torch.stack(res)
+#     res = res.cpu().numpy()
+#     return res
+        
+def infer_BAN(output, configs):
+    vmask = output["video_seq_len"]
+ 
+    outer = torch.triu(output["tmap"], diagonal=0)
+    _, start_index = torch.max(torch.max(outer, dim=2)[0], dim=1)  # (batch_size, )
+    _, end_index = torch.max(torch.max(outer, dim=1)[0], dim=1)  # (batch_size, )
+    
+    sfrac = (start_index/vmask).cpu().numpy()
+    efrac = (end_index/vmask).cpu().numpy()
+    res = np.stack([sfrac, efrac]).T
+    return res
