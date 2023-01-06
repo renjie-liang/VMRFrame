@@ -1,14 +1,15 @@
 {
-  "task" : "anet",
+  "task" : "tacos",
 
   "paths": {
     "ckpt_dir": "./ckpt",
     "cache_dir" : "./data_pkl/",
-    "feature_path": "/storage_fast/rjliang/activitynet/i3d",
+
+    "feature_path": "/storage_fast/rjliang/tacos/i3d",
     "glove_path": "/storage_fast/rjliang/glove/glove.840B.300d.txt",
-    "train_path": "./data/anet_gt/train.json",
-    "test_path": "./data/anet_gt/test.json",
-    "result_model1_path": "./data/anet_gt/SeqPAN_logits.pkl",
+    "train_path": "data/tacos/train.json",
+    "test_path": "data/tacos/test.json",
+    "result_model1_path": "./data/charades_gt/SeqPAN_logits.pkl",
     "val_path": ""
   },
 
@@ -22,7 +23,7 @@
 
   "model": {
     "name": "BaseFast",
-    "vlen": 100,
+    "vlen": 256,
     "vdim": 1024,
     "dim": 128,
     "num_heads": 4,

@@ -40,8 +40,8 @@ def lossfun_match(m_probs, label_embs, m_labels, vmask):
     return m_loss
 
 def lossfun_loc(start_logits, end_logits, s_labels, e_labels, vmask):
-    start_logits = mask_logits(start_logits, vmask)
-    end_logits = mask_logits(end_logits, vmask)
+    # start_logits = mask_logits(start_logits, vmask)
+    # end_logits = mask_logits(end_logits, vmask)
 
     start_losses = F.cross_entropy(start_logits, s_labels)
     end_losses = F.cross_entropy(end_logits, e_labels)
@@ -160,3 +160,14 @@ def div_loss_cpl(words_logit, gauss_weight, configs):
 
     return div_loss.mean() * configs.others.cpl_div_loss_alhpa
 
+
+def lossfun_loc2d(scores2d, labels2d, mask2d):
+    def scale(iou, min_iou, max_iou):
+        return (iou - min_iou) / (max_iou - min_iou)
+
+    labels2d = scale(labels2d, 0.5, 1.0).clamp(0, 1)
+    loss_loc2d = F.binary_cross_entropy_with_logits(
+        scores2d.squeeze().masked_select(mask2d),
+        labels2d.masked_select(mask2d)
+    )
+    return loss_loc2d

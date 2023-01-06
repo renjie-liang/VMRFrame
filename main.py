@@ -16,8 +16,6 @@ from utils.data_loader import get_loader
 from models import *
 
 torch.set_printoptions(precision=4, sci_mode=False)
-
-
 def build_load_model(configs, args, word_vector):
     model = eval(configs.model.name)(configs, word_vector)
     if torch.cuda.device_count() > 1:

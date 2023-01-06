@@ -7,17 +7,22 @@ from utils.utils import convert_length_to_mask, gene_soft_label, iou_n1
 import pandas as pd
 from tqdm import tqdm
 from models import *
+import pickle
 
 class Dataset(torch.utils.data.Dataset):
-    def __init__(self, dataset, video_features, max_vlen):
+    def __init__(self, dataset, video_features, configs):
         super(Dataset, self).__init__()
         self.dataset = dataset
         self.dataset.sort(key=lambda x:x['vid'])
 
         self.video_features = video_features
-        self.max_vlen = max_vlen
+        self.max_vlen = configs.model.vlen
+
+        with open(configs.paths.result_model1_path, mode='rb') as f:
+            self.model1_result = pickle.load(f)
+
     def __getitem__(self, index):
-        index = index 
+        index = index
         record = self.dataset[index]
         vfeat = self.video_features[record['vid']]
         sidx, eidx = int(record['s_ind']), int(record['e_ind'])
@@ -27,6 +32,8 @@ class Dataset(torch.utils.data.Dataset):
         map2d_contrasts = self.get_map2d_contrast(sidx, eidx)
         NER_label = self.get_NER_label(sidx, eidx, vfeat)
         label2d = self.get_label2d(sidx, eidx)
+
+        label1d_model1 = self.get_label1d_model(index, record['vid'])
         res = {"record": record,
                "max_vlen": self.max_vlen,
                "vfeat": vfeat,
@@ -34,13 +41,13 @@ class Dataset(torch.utils.data.Dataset):
                "chars_id": chars_id,
                "label1d": label1d,
                "label2d": label2d,
+               "label1d_model1": label1d_model1,
                "NER_label": NER_label,
                "map2d_contrast": map2d_contrasts,
                "se_time": [record["s_time"], record["e_time"]],
                "se_frac": [record["s_time"]/record["duration"], record["e_time"]/record["duration"]]
             }
         return res
-        # record, video_feature, word_ids, char_ids, s_ind, e_ind, max_len, bert_id, bert_mask
 
 
     def __len__(self):
@@ -116,6 +123,11 @@ class Dataset(torch.utils.data.Dataset):
         iou2d = iou_n1(candidates, moment).reshape(num_clips, num_clips)
         return iou2d
 
+    def get_label1d_model(self, index, vid):
+        res = self.model1_result[index]["logit1d"]
+        res = torch.from_numpy(np.stack(res))
+        # assert self.model1_result[index]["vid"] == vid
+        return res
 # def collate_fn_VSL(data):
 #     records, video_features, word_ids, char_ids, s_inds, e_inds = zip(*data)
 #     # process word ids
@@ -310,7 +322,7 @@ class Dataset(torch.utils.data.Dataset):
 # from utils.dataset_charades import CharadesSTA
 
 def get_loader(dataset, video_features, configs, loadertype):
-    data_set = Dataset(dataset=dataset, video_features=video_features, max_vlen=configs.model.vlen)
+    data_set = Dataset(dataset=dataset, video_features=video_features, configs=configs)
     if loadertype == "train":
         shuffle = True
     else:

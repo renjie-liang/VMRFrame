@@ -6,48 +6,44 @@ import numpy as np
 
 
 from models.layers import  VisualProjection, PositionalEmbedding, Conv1D, SeqPANPredictor
-from models.layers import  WordEmbedding, FeatureEncoder
+from models.layers import  Embedding, WordEmbedding#, FeatureEncoder, 
 from utils.utils import generate_2dmask
 
 
-# class SeparableConv2d(nn.Module):
-#     def __init__(self, in_channels, out_channels, kernel_size, bias=False):
-#         super(SeparableConv2d, self).__init__()
-#         self.depthwise = nn.Conv2d(in_channels, in_channels, kernel_size=kernel_size, 
-#                                 groups=in_channels, bias=bias, padding="same")
-#         self.pointwise = nn.Conv2d(in_channels, out_channels, 
-#                                 kernel_size=1, bias=bias,  padding="same")
-#     def forward(self, x):
-#         out = self.depthwise(x)
-#         out = self.pointwise(out)
-#         return out
+class SeparableConv2d(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, bias=False):
+        super(SeparableConv2d, self).__init__()
+        self.depthwise = nn.Conv2d(in_channels, in_channels, kernel_size=kernel_size, 
+                                groups=in_channels, bias=bias, padding="same")
+        self.pointwise = nn.Conv2d(in_channels, out_channels, 
+                                kernel_size=1, bias=bias,  padding="same")
+    def forward(self, x):
+        out = self.depthwise(x)
+        out = self.pointwise(out)
+        return out
 
-# class FeatureEncoder(nn.Module):
-#     def __init__(self, dim, max_pos_len, kernel_size=7, num_layers=4, droprate=0.0):
-#         super(FeatureEncoder, self).__init__()
-#         # self.pos_embedding = PositionalEmbedding(num_embeddings=max_pos_len, embedding_dim=dim)
-#         self.conv_block = nn.ModuleList([ 
-#             SeparableConv2d(in_channels=dim, out_channels=dim, kernel_size=(1, kernel_size),  bias=True)
-#             for _ in range(num_layers)])
-#         self.layer_norms = nn.ModuleList([nn.LayerNorm(dim, eps=1e-6) for _ in range(num_layers)])
-#         self.dropout = nn.Dropout(p=droprate)
+class FeatureEncoder(nn.Module):
+    def __init__(self, dim, max_pos_len, kernel_size=7, num_layers=4, droprate=0.0):
+        super(FeatureEncoder, self).__init__()
+        # self.pos_embedding = PositionalEmbedding(num_embeddings=max_pos_len, embedding_dim=dim)
+        self.conv_block = nn.ModuleList([ 
+            SeparableConv2d(in_channels=dim, out_channels=dim, kernel_size=(1, kernel_size),  bias=True)
+            for _ in range(num_layers)])
+        self.layer_norms = nn.ModuleList([nn.LayerNorm(dim, eps=1e-6) for _ in range(num_layers)])
+        self.dropout = nn.Dropout(p=droprate)
 
-#         # self.conv_block = SeparableConv2d(in_channels=dim, out_channels=dim, kernel_size=(1, kernel_size),  bias=True)
-#         # self.conv2d1 = nn.Conv2d(dim, dim, kernel_size=(1, kernel_size),  bias=True, padding="same")
-#         # self.conv2d2 = nn.Conv2d(dim, dim, kernel_size=(kernel_size, 1),  bias=True, padding="same")
-#         # self.conv2d3 = nn.Conv2d(dim, dim, kernel_size=(kernel_size, kernel_size),  bias=True, padding="same")
-#     def forward(self, x):
-#         output = x  # (batch_size, seq_len, dim)
-#         for idx, conv_layer in enumerate(self.conv_block):
-#             residual = output
-#             output = self.layer_norms[idx](output)  # (batch_size, seq_len, dim)
-#             output = output.transpose(1, 2).unsqueeze(2)  # (batch_size, dim, seq_len)
-#             output = conv_layer(output)
-#             output = self.dropout(output)
-#             output = output.squeeze(2).transpose(1, 2)  # (batch_size, dim, seq_len)
-#             output = output + residual
-#         # output = self.conv_block(output)
-#         return output
+    def forward(self, x):
+        output = x  # (batch_size, seq_len, dim)
+        for idx, conv_layer in enumerate(self.conv_block):
+            residual = output
+            output = self.layer_norms[idx](output)  # (batch_size, seq_len, dim)
+            output = output.transpose(1, 2).unsqueeze(2)  # (batch_size, dim, seq_len)
+            output = conv_layer(output)
+            output = self.dropout(output)
+            output = output.squeeze(2).transpose(1, 2)  # (batch_size, dim, seq_len)
+            output = output + residual
+        # output = self.conv_block(output)
+        return output
 
 
 
@@ -61,13 +57,14 @@ class BaseFast(nn.Module):
         max_pos_len = self.configs.model.vlen
 
         self.logit2D_mask = generate_2dmask(max_pos_len).to(configs.device)
+
+        self.word_emb = WordEmbedding(configs.num_words, configs.model.word_dim, 0, word_vectors=word_vectors)
+
         # self.text_encoder = Embedding(num_words=configs.num_words, num_chars=configs.num_chars, out_dim=D,
         #                                word_dim=configs.model.word_dim, 
         #                                char_dim=configs.model.char_dim, 
         #                                word_vectors=word_vectors,
         #                                droprate=droprate)
-
-        self.word_emb = WordEmbedding(configs.num_words, configs.model.word_dim, 0, word_vectors=word_vectors)
 
         self.text_conv1d = Conv1D(in_dim=configs.model.word_dim, out_dim=D)
         self.text_layer_norm = nn.LayerNorm(D, eps=1e-6)
@@ -93,14 +90,20 @@ class BaseFast(nn.Module):
         f_fusion = vfeat * f_tfeat.unsqueeze(1)
         slogits, elogits = self.predictor(f_fusion, vmask)
 
+        # slogits = torch.sigmoid(slogits)
+        # elogits = torch.sigmoid(elogits)
         logit2Ds = torch.matmul(slogits.unsqueeze(2), elogits.unsqueeze(1)) * self.logit2D_mask
         
         res = {
+            "tfeat": tfeat,
+            "vfeat": vfeat,
+            
             "slogits": slogits,
             "elogits": elogits,
             "vmask" : vmask,
             "logit2D_mask" : self.logit2D_mask,
             "logit2Ds": logit2Ds,
+            
         }
         return res
 
@@ -113,7 +116,7 @@ def collate_fn_BaseFast(datas):
 
     records, se_times, se_fracs = [], [], []
     vfeats, words_ids, chars_ids = [], [], []
-    label1ds, label2ds = [], []
+    label1ds, label2ds, label1d_model1s, NER_labels = [], [], [], []
     max_vlen = datas[0]["max_vlen"]
     for d in datas:
         records.append(d["record"])
@@ -124,7 +127,8 @@ def collate_fn_BaseFast(datas):
         se_times.append(d["se_time"])
         se_fracs.append(d["se_frac"])
         chars_ids.append(d["chars_id"])
-
+        label1d_model1s.append(d["label1d_model1"])
+        NER_labels.append(d["NER_label"])
     # process text
     words_ids, _ = pad_seq(words_ids)
     words_ids = torch.as_tensor(words_ids, dtype=torch.int64)
@@ -142,6 +146,8 @@ def collate_fn_BaseFast(datas):
     # process label
     label1ds = torch.stack(label1ds)
     label2ds = torch.stack(label2ds)
+    label1d_model1s = torch.stack(label1d_model1s)
+    NER_labels = torch.stack(NER_labels)
     
     se_times = torch.as_tensor(se_times, dtype=torch.float)
     se_fracs = torch.as_tensor(se_fracs, dtype=torch.float)
@@ -156,29 +162,62 @@ def collate_fn_BaseFast(datas):
             # labels
             'label1ds': label1ds,
             'label2ds': label2ds,
+            "label1d_model1s": label1d_model1s,
+            "NER_labels": NER_labels,
 
             # evaluate
             'se_times': se_times,
             'se_fracs': se_fracs,
+
             # 'vname': vname,
             # 'sentence': sentence
             }
 
     return res, records
 
-def lossfun_loc2d(scores2d, labels2d, mask2d):
-    def scale(iou, min_iou, max_iou):
-        return (iou - min_iou) / (max_iou - min_iou)
 
-    labels2d = scale(labels2d, 0.5, 1.0).clamp(0, 1)
-    loss_loc2d = F.binary_cross_entropy_with_logits(
-        scores2d.squeeze().masked_select(mask2d),
-        labels2d.masked_select(mask2d)
-    )
-    return loss_loc2d
+def lossfun_softloc(slogits, elogits, s_labels, e_labels, vmask, temperature):
+    from models.layers import mask_logits
+    slogits = mask_logits(slogits, vmask)
+    elogits = mask_logits(elogits, vmask)
+    s_labels = mask_logits(s_labels, vmask)
+    e_labels = mask_logits(e_labels, vmask)
+    
+    slogits = F.softmax(F.normalize(slogits, p=2, dim=1) / temperature, dim=-1) 
+    elogits = F.softmax(F.normalize(elogits, p=2, dim=1) / temperature, dim=-1) 
+    s_labels = F.softmax(F.normalize(s_labels, p=2, dim=1) / temperature, dim=-1) 
+    e_labels = F.softmax(F.normalize(e_labels, p=2, dim=1) / temperature, dim=-1) 
+
+
+    # sloss = F.cross_entropy(slogits, s_labels, reduce="batchmean")
+    # eloss = F.cross_entropy(elogits, e_labels, reduce="batchmean")
+
+    sloss = F.kl_div(slogits.log(), s_labels, reduction='sum')
+    eloss = F.kl_div(elogits.log(), e_labels, reduction='sum')
+
+    return sloss + eloss
+
+
+def lossfun_aligment(tfeat, vfeat, tmask, vmask, inner_label):
+    tfeat = tfeat.sum(1) / tmask.sum(1).unsqueeze(1)
+    tfeat = F.normalize(tfeat, p=2, dim=1)  # B, channels
+    frame_weights = inner_label / vmask.sum(1, keepdim=True)
+
+    vfeat = vfeat * frame_weights.unsqueeze(2)
+    vfeat = vfeat.sum(1)
+    vfeat = F.normalize(vfeat, p=2, dim=1)
+    video_sim = torch.matmul(vfeat, vfeat.T)
+    video_sim = torch.softmax(video_sim, dim=-1)
+    query_sim = torch.matmul(tfeat, tfeat.T)
+    query_sim = torch.softmax(query_sim, dim=-1)
+    kl_loss = (F.kl_div(query_sim.log(), video_sim, reduction='sum') +
+                F.kl_div(video_sim.log(), query_sim, reduction='sum')) / 2
+    return kl_loss
+
+
 
 def train_engine_BaseFast(model, data, configs):
-    from models.loss import lossfun_loc
+    from models.loss import lossfun_loc, lossfun_loc2d
     data = {key: value.to(configs.device) for key, value in data.items()}
     output = model(data['words_ids'], data['char_ids'], data['vfeats'], data['vmasks'], data['tmasks'])
 
@@ -187,33 +226,38 @@ def train_engine_BaseFast(model, data, configs):
 
     label1ds =  data['label1ds']
     loc_loss = lossfun_loc(slogits, elogits, label1ds[:, 0, :], label1ds[:, 1, :], data['vmasks'])
-    loc2d_loss = lossfun_loc2d(output["logit2Ds"], data["label2ds"], output['logit2D_mask'])
+    
+    label1d_model1s = data["label1d_model1s"]
+    softloc_loss = lossfun_softloc(slogits, elogits, label1d_model1s[:,0,:], label1d_model1s[:, 1, :], data['vmasks'], 3)
+    # # loc2d_loss = lossfun_loc2d(output["logit2Ds"], data["label2ds"], output['logit2D_mask'])
 
-
-    loss = loc2d_loss
+    NER_labels = data['NER_labels']
+    NER_labels[NER_labels != 0] = 1
+    align_loss = lossfun_aligment(output["tfeat"], output["vfeat"], data['tmasks'], data['vmasks'], NER_labels)
+    loss = loc_loss + 1.0 * align_loss + 1.0 *softloc_loss# + loc2d_loss # + 0.5*softloc_loss + loc2d_loss
     return loss, output
 
 
-# def infer_BaseFast(output, configs):
-#     from utils.engine import infer_basic
-
-#     start_logits = output["slogits"]
-#     end_logits = output["elogits"]
-#     vmask = output["vmask"]
-#     sfrac, efrac = infer_basic(start_logits, end_logits, vmask)
-
-#     res = np.stack([sfrac, efrac]).T
-#     return res
-
-
 def infer_BaseFast(output, configs):
+    from utils.engine import infer_basic
+
+    start_logits = output["slogits"]
+    end_logits = output["elogits"]
     vmask = output["vmask"]
- 
-    outer = torch.triu(output["logit2Ds"], diagonal=0)
-    _, start_index = torch.max(torch.max(outer, dim=2)[0], dim=1)  # (batch_size, )
-    _, end_index = torch.max(torch.max(outer, dim=1)[0], dim=1)  # (batch_size, )
-    
-    sfrac = (start_index/vmask.sum(dim=1)).cpu().numpy()
-    efrac = (end_index/vmask.sum(dim=1)).cpu().numpy()
+    sfrac, efrac = infer_basic(start_logits, end_logits, vmask)
+
     res = np.stack([sfrac, efrac]).T
     return res
+
+
+# def infer_BaseFast(output, configs):
+#     vmask = output["vmask"]
+ 
+#     outer = torch.triu(output["logit2Ds"], diagonal=0)
+#     _, start_index = torch.max(torch.max(outer, dim=2)[0], dim=1)  # (batch_size, )
+#     _, end_index = torch.max(torch.max(outer, dim=1)[0], dim=1)  # (batch_size, )
+    
+#     sfrac = (start_index/vmask.sum(dim=1)).cpu().numpy()
+#     efrac = (end_index/vmask.sum(dim=1)).cpu().numpy()
+#     res = np.stack([sfrac, efrac]).T
+#     return res
