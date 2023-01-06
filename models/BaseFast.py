@@ -22,6 +22,8 @@ class SeparableConv2d(nn.Module):
         out = self.pointwise(out)
         return out
 
+
+
 class FeatureEncoder(nn.Module):
     def __init__(self, dim, max_pos_len, kernel_size=7, num_layers=4, droprate=0.0):
         super(FeatureEncoder, self).__init__()
@@ -46,7 +48,20 @@ class FeatureEncoder(nn.Module):
         return output
 
 
+def load_commonsense_emb(attri_input_path, commonsense_path):
+    import pickle
+    attribute_input_emb = pickle.load(open(attri_input_path, 'rb'))
+    com_dict = pickle.load(open(commonsense_path, 'rb'))
+    com_vectors = []
+    for k in com_dict.keys():
+        com_vectors.append(com_dict[k])
+    com_vectors = np.array(com_vectors)
+    attribute_input_emb = np.concatenate([attribute_input_emb, com_vectors], 0)
+    attribute_input_emb = torch.from_numpy(attribute_input_emb)
+    return attribute_input_emb
 
+
+from models.CCA import C_GCN
 class BaseFast(nn.Module):
     def __init__(self, configs, word_vectors):
         super(BaseFast, self).__init__()
@@ -75,15 +90,31 @@ class BaseFast(nn.Module):
         self.video_encoder = FeatureEncoder(dim=D, kernel_size=7, num_layers=4, max_pos_len=max_pos_len, droprate=droprate)
         self.predictor = SeqPANPredictor(configs)
 
+        # CCA
+        self.concept_input_embs = load_commonsense_emb(configs.paths.attri_input_path, configs.paths.commonsense_path).to(configs.device)
+        self.C_GCN = C_GCN(3152, in_channel=300, t=0.3, embed_size=1024, 
+                            adj_file="/storage/rjliang/4_FastVMR/CCA/acnet_concept/acnet_concept_adj.pkl",
+                            norm_func='sigmoid', 
+                            num_path='/storage/rjliang/4_FastVMR/CCA/acnet_concept/acnet_dict.pkl', 
+                            com_path='/storage/rjliang/4_FastVMR/CCA/acnet_concept/acnet_com_graph.pkl')
+        self.V_TransformerLayer = nn.TransformerEncoderLayer(3248, 8)
 
 
     def forward(self, word_ids, char_ids, vfeat_in, vmask, tmask):
+        # CCA
+        B, L, D = vfeat_in.shape
+        concept_input = self.concept_input_embs[None, :, :].repeat(B, 1, 1)
+        concept_basis = self.C_GCN(concept_input)
+        vfeat = torch.cat([vfeat_in.permute(0, 2, 1), concept_basis.unsqueeze(0).repeat(vfeat_in.size(0), 1, 1).permute(0, 2, 1)], dim=2)
+        vfeat = self.V_TransformerLayer(vfeat)[:, :, :96].permute(0, 2, 1)
+
         words_feat = self.word_emb(word_ids)
         tfeat = self.text_conv1d(words_feat)
         tfeat = self.text_layer_norm(tfeat)
         tfeat = self.text_encoder(tfeat)
 
-        vfeat = self.video_affine(vfeat_in)
+        # vfeat = self.video_affine(vfeat_in)
+        vfeat = self.video_affine(vfeat)
         vfeat = self.video_encoder(vfeat)
 
         f_tfeat = torch.max(tfeat, dim=1)[0]
@@ -227,14 +258,14 @@ def train_engine_BaseFast(model, data, configs):
     label1ds =  data['label1ds']
     loc_loss = lossfun_loc(slogits, elogits, label1ds[:, 0, :], label1ds[:, 1, :], data['vmasks'])
     
-    label1d_model1s = data["label1d_model1s"]
-    softloc_loss = lossfun_softloc(slogits, elogits, label1d_model1s[:,0,:], label1d_model1s[:, 1, :], data['vmasks'], 3)
+    # label1d_model1s = data["label1d_model1s"]
+    # softloc_loss = lossfun_softloc(slogits, elogits, label1d_model1s[:,0,:], label1d_model1s[:, 1, :], data['vmasks'], 3)
     # # loc2d_loss = lossfun_loc2d(output["logit2Ds"], data["label2ds"], output['logit2D_mask'])
 
     NER_labels = data['NER_labels']
     NER_labels[NER_labels != 0] = 1
     align_loss = lossfun_aligment(output["tfeat"], output["vfeat"], data['tmasks'], data['vmasks'], NER_labels)
-    loss = loc_loss + 1.0 * align_loss + 1.0 *softloc_loss# + loc2d_loss # + 0.5*softloc_loss + loc2d_loss
+    loss = loc_loss + 1.0 * align_loss# + 1.0 *softloc_loss# + loc2d_loss # + 0.5*softloc_loss + loc2d_loss
     return loss, output
 
 
