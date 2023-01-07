@@ -73,13 +73,12 @@ class BaseFast(nn.Module):
 
         self.logit2D_mask = generate_2dmask(max_pos_len).to(configs.device)
 
-        self.word_emb = WordEmbedding(configs.num_words, configs.model.word_dim, 0, word_vectors=word_vectors)
-
-        # self.text_encoder = Embedding(num_words=configs.num_words, num_chars=configs.num_chars, out_dim=D,
-        #                                word_dim=configs.model.word_dim, 
-        #                                char_dim=configs.model.char_dim, 
-        #                                word_vectors=word_vectors,
-        #                                droprate=droprate)
+        # self.word_emb = WordEmbedding(configs.num_words, configs.model.word_dim, 0, word_vectors=word_vectors)
+        self.wordchat_emb = Embedding(num_words=configs.num_words, num_chars=configs.num_chars, out_dim=D,
+                                       word_dim=configs.model.word_dim, 
+                                       char_dim=configs.model.char_dim, 
+                                       word_vectors=word_vectors,
+                                       droprate=droprate)
 
         self.text_conv1d = Conv1D(in_dim=configs.model.word_dim, out_dim=D)
         self.text_layer_norm = nn.LayerNorm(D, eps=1e-6)
@@ -90,34 +89,35 @@ class BaseFast(nn.Module):
         self.video_encoder = FeatureEncoder(dim=D, kernel_size=7, num_layers=4, max_pos_len=max_pos_len, droprate=droprate)
         self.predictor = SeqPANPredictor(configs)
 
-        # CCA
-        self.concept_input_embs = load_commonsense_emb(configs.paths.attri_input_path, configs.paths.commonsense_path).to(configs.device)
-        self.C_GCN = C_GCN(3152, in_channel=300, t=0.3, embed_size=1024, 
-                            adj_file="/storage/rjliang/4_FastVMR/CCA/acnet_concept/acnet_concept_adj.pkl",
-                            norm_func='sigmoid', 
-                            num_path='/storage/rjliang/4_FastVMR/CCA/acnet_concept/acnet_dict.pkl', 
-                            com_path='/storage/rjliang/4_FastVMR/CCA/acnet_concept/acnet_com_graph.pkl')
-        self.V_TransformerLayer = nn.TransformerEncoderLayer(3248, 8)
+        # # CCA
+        # self.concept_input_embs = load_commonsense_emb(configs.paths.attri_input_path, configs.paths.commonsense_path).to(configs.device)
+        # self.C_GCN = C_GCN(3152, in_channel=300, t=0.3, embed_size=1024, 
+        #                     adj_file="/storage/rjliang/4_FastVMR/CCA/acnet_concept/acnet_concept_adj.pkl",
+        #                     norm_func='sigmoid', 
+        #                     num_path='/storage/rjliang/4_FastVMR/CCA/acnet_concept/acnet_dict.pkl', 
+        #                     com_path='/storage/rjliang/4_FastVMR/CCA/acnet_concept/acnet_com_graph.pkl')
+        # self.V_TransformerLayer = nn.TransformerEncoderLayer(3248, 8)
 
 
     def forward(self, word_ids, char_ids, vfeat_in, vmask, tmask):
         # CCA
-        B, L, D = vfeat_in.shape
-        concept_input = self.concept_input_embs[None, :, :].repeat(B, 1, 1)
-        concept_basis = self.C_GCN(concept_input)
-        vfeat = torch.cat([vfeat_in.permute(0, 2, 1), concept_basis.unsqueeze(0).repeat(vfeat_in.size(0), 1, 1).permute(0, 2, 1)], dim=2)
-        vfeat = self.V_TransformerLayer(vfeat)[:, :, :96].permute(0, 2, 1)
+        # B, L, D = vfeat_in.shape
+        # concept_input = self.concept_input_embs[None, :, :].repeat(B, 1, 1)
+        # concept_basis = self.C_GCN(concept_input)
+        # vfeat = torch.cat([vfeat_in.permute(0, 2, 1), concept_basis.unsqueeze(0).repeat(vfeat_in.size(0), 1, 1).permute(0, 2, 1)], dim=2)
+        # vfeat = self.V_TransformerLayer(vfeat)[:, :, :96].permute(0, 2, 1)
 
-        words_feat = self.word_emb(word_ids)
-        tfeat = self.text_conv1d(words_feat)
-        tfeat = self.text_layer_norm(tfeat)
+        # words_feat = self.word_emb(word_ids)
+        # tfeat = self.text_conv1d(words_feat)
+        # tfeat = self.text_layer_norm(tfeat)
+        tfeat = self.wordchat_emb(word_ids, char_ids)
         tfeat = self.text_encoder(tfeat)
 
-        # vfeat = self.video_affine(vfeat_in)
-        vfeat = self.video_affine(vfeat)
+        vfeat = self.video_affine(vfeat_in)
         vfeat = self.video_encoder(vfeat)
 
-        f_tfeat = torch.max(tfeat, dim=1)[0]
+        # tfeat = tfeat.masked_select(tmask)
+        f_tfeat = torch.max(tfeat * tmask[1, 1, None], dim=1)[0]
         f_fusion = vfeat * f_tfeat.unsqueeze(1)
         slogits, elogits = self.predictor(f_fusion, vmask)
 
