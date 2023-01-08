@@ -10,10 +10,11 @@ from tqdm import tqdm
 
 from models.loss import append_ious, get_i345_mi
 from utils.data_gen import load_dataset
-from utils.data_utils import load_video_features
-from utils.utils import load_json, set_seed_config, build_optimizer_and_scheduler, plot_labels, AverageMeter, get_logger, save_best_model
+from utils.data_utils import VideoFeatureDict
+from utils.utils import load_json, load_yaml, set_seed_config, build_optimizer_and_scheduler, plot_labels, AverageMeter, get_logger, save_best_model
 from utils.data_loader import get_loader
 from models import *
+import yaml
 
 torch.set_printoptions(precision=4, sci_mode=False)
 def build_load_model(configs, args, word_vector):
@@ -36,13 +37,14 @@ def parse_args():
     parser.add_argument('--config', type=str, default=None, required=True, help='config file path')
     parser.add_argument('--checkpoint', type=str, default=None, help='checkpoint path to resume')
     parser.add_argument('--eval', action='store_true', help='only evaluate')
+    parser.add_argument('--debug', action='store_true', help='only debug')
     parser.add_argument('--suffix', type=str, default='', help='task suffix')
     parser.add_argument('--seed', default=1234, type=int, help='random seed')
     return parser.parse_args()
 
 
 args = parse_args()
-configs = EasyDict(load_json(args.config))
+configs = EasyDict(load_yaml(args.config))
 configs['suffix'] = args.suffix
 
 set_seed_config(args.seed)
@@ -51,7 +53,7 @@ configs.num_chars = dataset['n_chars']
 configs.num_words = dataset['n_words']
 
 # get train and test loader
-visual_features = load_video_features(configs.paths.feature_path, configs.model.vlen)
+visual_features = VideoFeatureDict(configs.paths.feature_path, configs.model.vlen, args.debug)
 train_loader = get_loader(dataset['train_set'], visual_features, configs, loadertype="train")
 test_loader = get_loader(dataset['test_set'], visual_features, configs, loadertype="test")
 # train_nosuffle_loader = get_loader(dataset=dataset['train_set'], video_features=visual_features, configs=configs, loadertype="test")

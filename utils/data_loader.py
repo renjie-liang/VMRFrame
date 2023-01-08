@@ -27,7 +27,7 @@ class Dataset(torch.utils.data.Dataset):
         vfeat = self.video_features[record['vid']]
         sidx, eidx = int(record['s_ind']), int(record['e_ind'])
         words_id, chars_id = record['w_ids'], record['c_ids']
-        bert_id, bert_mask = record["bert_id"], record["bert_mask"]
+        bert_id, bert_tmask = record["bert_id"], record["bert_mask"]
         label1d = self.get_dist_idx(sidx, eidx)
         map2d_contrasts = self.get_map2d_contrast(sidx, eidx)
         NER_label = self.get_NER_label(sidx, eidx, vfeat)
@@ -39,6 +39,8 @@ class Dataset(torch.utils.data.Dataset):
                "vfeat": vfeat,
                "words_id": words_id,
                "chars_id": chars_id,
+               "bert_id": bert_id,
+               "bert_tmask": bert_tmask,
                "label1d": label1d,
                "label2d": label2d,
                "label1d_model1": label1d_model1,

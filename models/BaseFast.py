@@ -8,6 +8,7 @@ import numpy as np
 from models.layers import  VisualProjection, PositionalEmbedding, Conv1D, SeqPANPredictor
 from models.layers import  Embedding, WordEmbedding#, FeatureEncoder, 
 from utils.utils import generate_2dmask
+from transformers import BertModel
 
 
 class SeparableConv2d(nn.Module):
@@ -27,7 +28,7 @@ class SeparableConv2d(nn.Module):
 class FeatureEncoder(nn.Module):
     def __init__(self, dim, max_pos_len, kernel_size=7, num_layers=4, droprate=0.0):
         super(FeatureEncoder, self).__init__()
-        # self.pos_embedding = PositionalEmbedding(num_embeddings=max_pos_len, embedding_dim=dim)
+        self.pos_embedding = PositionalEmbedding(num_embeddings=max_pos_len, embedding_dim=dim)
         self.conv_block = nn.ModuleList([ 
             SeparableConv2d(in_channels=dim, out_channels=dim, kernel_size=(1, kernel_size),  bias=True)
             for _ in range(num_layers)])
@@ -35,6 +36,7 @@ class FeatureEncoder(nn.Module):
         self.dropout = nn.Dropout(p=droprate)
 
     def forward(self, x):
+        x = x + self.pos_embedding(x)  # (batch_size, seq_len, dim)
         output = x  # (batch_size, seq_len, dim)
         for idx, conv_layer in enumerate(self.conv_block):
             residual = output
@@ -44,7 +46,6 @@ class FeatureEncoder(nn.Module):
             output = self.dropout(output)
             output = output.squeeze(2).transpose(1, 2)  # (batch_size, dim, seq_len)
             output = output + residual
-        # output = self.conv_block(output)
         return output
 
 
@@ -80,7 +81,8 @@ class BaseFast(nn.Module):
                                        word_vectors=word_vectors,
                                        droprate=droprate)
 
-        self.text_conv1d = Conv1D(in_dim=configs.model.word_dim, out_dim=D)
+        # self.text_conv1d = Conv1D(in_dim=configs.model.word_dim, out_dim=D)
+        self.text_conv1d = Conv1D(in_dim=768, out_dim=D)
         self.text_layer_norm = nn.LayerNorm(D, eps=1e-6)
         
         self.text_encoder = FeatureEncoder(dim=D, kernel_size=7, num_layers=4, max_pos_len=max_pos_len, droprate=droprate)
@@ -98,6 +100,8 @@ class BaseFast(nn.Module):
         #                     com_path='/storage/rjliang/4_FastVMR/CCA/acnet_concept/acnet_com_graph.pkl')
         # self.V_TransformerLayer = nn.TransformerEncoderLayer(3248, 8)
 
+        self.bert = BertModel.from_pretrained('bert-base-cased')
+
 
     def forward(self, word_ids, char_ids, vfeat_in, vmask, tmask):
         # CCA
@@ -107,17 +111,19 @@ class BaseFast(nn.Module):
         # vfeat = torch.cat([vfeat_in.permute(0, 2, 1), concept_basis.unsqueeze(0).repeat(vfeat_in.size(0), 1, 1).permute(0, 2, 1)], dim=2)
         # vfeat = self.V_TransformerLayer(vfeat)[:, :, :96].permute(0, 2, 1)
 
+        words_feat, _ = self.bert(input_ids= word_ids, attention_mask=tmask,return_dict=False)
         # words_feat = self.word_emb(word_ids)
-        # tfeat = self.text_conv1d(words_feat)
-        # tfeat = self.text_layer_norm(tfeat)
-        tfeat = self.wordchat_emb(word_ids, char_ids)
+        tfeat = self.text_conv1d(words_feat)
+        tfeat = self.text_layer_norm(tfeat)
+
+        # tfeat = self.wordchat_emb(word_ids, char_ids)
         tfeat = self.text_encoder(tfeat)
 
         vfeat = self.video_affine(vfeat_in)
         vfeat = self.video_encoder(vfeat)
 
         # tfeat = tfeat.masked_select(tmask)
-        f_tfeat = torch.max(tfeat * tmask[1, 1, None], dim=1)[0]
+        f_tfeat = torch.max(tfeat, dim=1)[0]
         f_fusion = vfeat * f_tfeat.unsqueeze(1)
         slogits, elogits = self.predictor(f_fusion, vmask)
 
@@ -146,7 +152,7 @@ def collate_fn_BaseFast(datas):
     from utils.utils import convert_length_to_mask
 
     records, se_times, se_fracs = [], [], []
-    vfeats, words_ids, chars_ids = [], [], []
+    vfeats, words_ids, chars_ids, bert_ids, bert_tmasks = [], [], [], [], []
     label1ds, label2ds, label1d_model1s, NER_labels = [], [], [], []
     max_vlen = datas[0]["max_vlen"]
     for d in datas:
@@ -160,6 +166,9 @@ def collate_fn_BaseFast(datas):
         chars_ids.append(d["chars_id"])
         label1d_model1s.append(d["label1d_model1"])
         NER_labels.append(d["NER_label"])
+        bert_ids.append(d["bert_id"])
+        bert_tmasks.append(d["bert_tmask"])
+
     # process text
     words_ids, _ = pad_seq(words_ids)
     words_ids = torch.as_tensor(words_ids, dtype=torch.int64)
@@ -179,6 +188,8 @@ def collate_fn_BaseFast(datas):
     label2ds = torch.stack(label2ds)
     label1d_model1s = torch.stack(label1d_model1s)
     NER_labels = torch.stack(NER_labels)
+    bert_ids = torch.vstack(bert_ids)
+    bert_tmasks = torch.vstack(bert_tmasks)
     
     se_times = torch.as_tensor(se_times, dtype=torch.float)
     se_fracs = torch.as_tensor(se_fracs, dtype=torch.float)
@@ -186,6 +197,8 @@ def collate_fn_BaseFast(datas):
     res = {'words_ids': words_ids,
             'char_ids': chars_ids,
             'tmasks': tmasks,
+            'bert_ids': bert_ids,
+            'bert_tmasks': bert_tmasks,
 
             'vfeats': vfeats,
             'vmasks': vmasks,
@@ -250,7 +263,7 @@ def lossfun_aligment(tfeat, vfeat, tmask, vmask, inner_label):
 def train_engine_BaseFast(model, data, configs):
     from models.loss import lossfun_loc, lossfun_loc2d
     data = {key: value.to(configs.device) for key, value in data.items()}
-    output = model(data['words_ids'], data['char_ids'], data['vfeats'], data['vmasks'], data['tmasks'])
+    output = model(data['bert_ids'], data['char_ids'], data['vfeats'], data['vmasks'], data['bert_tmasks'])
 
     slogits = output["slogits"]
     elogits = output["elogits"]
@@ -261,11 +274,11 @@ def train_engine_BaseFast(model, data, configs):
     # label1d_model1s = data["label1d_model1s"]
     # softloc_loss = lossfun_softloc(slogits, elogits, label1d_model1s[:,0,:], label1d_model1s[:, 1, :], data['vmasks'], 3)
     # # loc2d_loss = lossfun_loc2d(output["logit2Ds"], data["label2ds"], output['logit2D_mask'])
-
-    NER_labels = data['NER_labels']
-    NER_labels[NER_labels != 0] = 1
-    align_loss = lossfun_aligment(output["tfeat"], output["vfeat"], data['tmasks'], data['vmasks'], NER_labels)
-    loss = loc_loss + 1.0 * align_loss# + 1.0 *softloc_loss# + loc2d_loss # + 0.5*softloc_loss + loc2d_loss
+    
+    # NER_labels = data['NER_labels']
+    # NER_labels[NER_labels != 0] = 1
+    # align_loss = lossfun_aligment(output["tfeat"], output["vfeat"], data['tmasks'], data['vmasks'], NER_labels)
+    loss = loc_loss# + 1.0 * align_loss# + 1.0 *softloc_loss# + loc2d_loss # + 0.5*softloc_loss + loc2d_loss
     return loss, output
 
 

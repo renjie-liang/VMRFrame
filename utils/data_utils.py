@@ -25,15 +25,44 @@ import torch.nn.functional as F
 #     return new_visual_feature
 
 
-def load_video_features(root, max_vlen):
-    video_features = dict()
-    filenames = glob.glob(os.path.join(root, "*.npy"))
-    for filename in tqdm(filenames, total=len(filenames), desc="load video features"):
-        video_id = filename.split("/")[-1].split(".")[0]
-        feature = np.load(filename)
-        feature = torch.FloatTensor(feature)
-        video_features[video_id] = sample_vfeat_linear(feature, max_vlen)
-    return video_features
+# def load_video_features(root, max_vlen):
+#     video_features = dict()
+#     filenames = glob.glob(os.path.join(root, "*.npy"))
+#     for filename in tqdm(filenames, total=len(filenames), desc="load video features"):
+#         video_id = filename.split("/")[-1].split(".")[0]
+#         feature = np.load(filename)
+#         feature = torch.FloatTensor(feature)
+#         video_features[video_id] = sample_vfeat_linear(feature, max_vlen)
+#     return video_features
+class VideoFeatureDict():
+    def __init__(self, root, max_vlen, debug):
+        self.debug = debug
+        self.max_vlen = 512
+        self.path_dict = dict()
+        self.video_features = dict()
+
+        filenames = glob.glob(os.path.join(root, "*.npy"))
+        if debug:
+            for filename in tqdm(filenames, total=len(filenames), desc="load video path"):
+                video_id = filename.split("/")[-1].split(".")[0]
+                self.path_dict[video_id] = filename
+        else:
+            for filename in tqdm(filenames, total=len(filenames), desc="load video features"):
+                video_id = filename.split("/")[-1].split(".")[0]
+                feature = np.load(filename)
+                feature = torch.FloatTensor(feature)
+                self.video_features[video_id] = sample_vfeat_linear(feature, self.max_vlen)
+
+    def __getitem__(self, k):
+        if self.debug:
+            filename = self.path_dict[k]
+            feature = np.load(filename)
+            feature = torch.FloatTensor(feature)
+            feature = sample_vfeat_linear(feature, self.max_vlen)
+            return feature
+        else:
+            return self.video_features[k]
+
 
 def sample_vfeat_linear(v_feat, max_seq_len):
         

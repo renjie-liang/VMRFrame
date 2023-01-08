@@ -1,0 +1,38 @@
+{
+  "task" : "anet",
+
+  "paths": {
+    "ckpt_dir": "./ckpt",
+    "cache_dir" : "./data_pkl/",
+    "feature_path": "/storage_fast/rjliang/activitynet/i3d",
+    "glove_path": "/storage_fast/rjliang/glove/glove.840B.300d.txt",
+    "train_path": "./data/anet_gt/train.json",
+    "test_path": "./data/anet_gt/test.json",
+    "result_model1_path": "./data/anet_gt/SeqPAN_logits.pkl",
+    "val_path": "", 
+    "attri_input_path": "/storage/rjliang/4_FastVMR/CCA/acnet_concept/acnet_concepts_glove_word2vec.pkl",
+    "commonsense_path": "/storage/rjliang/4_FastVMR/CCA/acnet_concept/acnet_test_concepts.pkl"
+  },
+
+  "train": {
+    "epochs": 30,
+    "batch_size": 32,
+    "lr": 0.0008,
+    "warmup_proportion": 0.01,
+    "clip_norm": 1.0
+  },
+
+  "model": {
+    "name": "CCA",
+    "vlen": 96,
+    "vdim": 1024,
+    "dim": 128,
+    "num_heads": 4,
+    "word_dim": 300,
+    "char_dim": 100,
+    "droprate": 0.1
+  },
+  "others":
+  {
+  }
+}

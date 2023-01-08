@@ -6,6 +6,7 @@ import random
 import pickle
 import logging
 import os
+import yaml
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
@@ -28,6 +29,9 @@ def load_json(filename):
     with open(filename, encoding='utf8') as fr:
         return json.load(fr)
 
+def load_yaml(filename):
+    with open(filename, encoding='utf8') as fr:
+        return yaml.safe_load(fr)
 
 
 def load_pickle(filename):
