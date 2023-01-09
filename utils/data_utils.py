@@ -37,7 +37,7 @@ import torch.nn.functional as F
 class VideoFeatureDict():
     def __init__(self, root, max_vlen, debug):
         self.debug = debug
-        self.max_vlen = 512
+        self.max_vlen = max_vlen
         self.path_dict = dict()
         self.video_features = dict()
 

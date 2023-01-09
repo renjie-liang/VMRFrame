@@ -24,7 +24,7 @@
 
   "model": {
     "name": "BaseFast",
-    "vlen": 96,
+    "vlen": 64,
     "vdim": 1024,
     "dim": 128,
     "num_heads": 4,

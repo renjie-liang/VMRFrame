@@ -29,7 +29,6 @@ def build_load_model(configs, args, word_vector):
     # for m in model.modules():
     #     if isinstance(m, (nn.Conv2d, nn.Linear)):
     #         nn.init.xavier_uniform_(m.weight)
-
     return model
 
 def parse_args():
@@ -41,7 +40,6 @@ def parse_args():
     parser.add_argument('--suffix', type=str, default='', help='task suffix')
     parser.add_argument('--seed', default=1234, type=int, help='random seed')
     return parser.parse_args()
-
 
 args = parse_args()
 configs = EasyDict(load_yaml(args.config))
