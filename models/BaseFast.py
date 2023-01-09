@@ -8,6 +8,7 @@ import numpy as np
 from models.layers import  VisualProjection, PositionalEmbedding, Conv1D, SeqPANPredictor
 from models.layers import  Embedding, WordEmbedding
 from utils.utils import generate_2dmask
+from utils.engine import infer_basic, infer_basic2d
 
 
 class SeparableConv2d(nn.Module):
@@ -256,39 +257,27 @@ def train_engine_BaseFast(model, data, configs):
     elogits = output["elogits"]
 
     label1ds =  data['label1ds']
-    loc_loss = lossfun_loc(slogits, elogits, label1ds[:, 0, :], label1ds[:, 1, :], data['vmasks'])
+    # loc_loss = lossfun_loc(slogits, elogits, label1ds[:, 0, :], label1ds[:, 1, :], data['vmasks'])
     
     # label1d_model1s = data["label1d_model1s"]
     # softloc_loss = lossfun_softloc(slogits, elogits, label1d_model1s[:,0,:], label1d_model1s[:, 1, :], data['vmasks'], 3)
-    # # loc2d_loss = lossfun_loc2d(output["logit2Ds"], data["label2ds"], output['logit2D_mask'])
+    loc2d_loss = lossfun_loc2d(output["logit2Ds"], data["label2ds"], output['logit2D_mask'])
 
-    NER_labels = data['NER_labels']
-    NER_labels[NER_labels != 0] = 1
-    align_loss = lossfun_aligment(output["tfeat"], output["vfeat"], data['tmasks'], data['vmasks'], NER_labels)
-    loss = loc_loss + 1.0 * align_loss# + 1.0 *softloc_loss# + loc2d_loss # + 0.5*softloc_loss + loc2d_loss
+    # NER_labels = data['NER_labels']
+    # NER_labels[NER_labels != 0] = 1
+    # align_loss = lossfun_aligment(output["tfeat"], output["vfeat"], data['tmasks'], data['vmasks'], NER_labels)
+    # loss = loc_loss + 1.0 * align_loss# + 1.0 *softloc_loss# + loc2d_loss # + 0.5*softloc_loss + loc2d_loss
+    loss = loc2d_loss
     return loss, output
 
 
-def infer_BaseFast(output, configs):
-    from utils.engine import infer_basic
-
-    start_logits = output["slogits"]
-    end_logits = output["elogits"]
-    vmask = output["vmask"]
-    sfrac, efrac = infer_basic(start_logits, end_logits, vmask)
-
-    res = np.stack([sfrac, efrac]).T
-    return res
-
-
 # def infer_BaseFast(output, configs):
-#     vmask = output["vmask"]
- 
-#     outer = torch.triu(output["logit2Ds"], diagonal=0)
-#     _, start_index = torch.max(torch.max(outer, dim=2)[0], dim=1)  # (batch_size, )
-#     _, end_index = torch.max(torch.max(outer, dim=1)[0], dim=1)  # (batch_size, )
-    
-#     sfrac = (start_index/vmask.sum(dim=1)).cpu().numpy()
-#     efrac = (end_index/vmask.sum(dim=1)).cpu().numpy()
-#     res = np.stack([sfrac, efrac]).T
+#     start_logits, end_logits, vmask = output["slogits"], output["elogits"], output["vmask"]
+#     res = infer_basic(start_logits, end_logits, vmask)
 #     return res
+
+
+def infer_BaseFast(output, configs):
+    scores2d, logit2D_mask, vmask = output["logit2Ds"], output['logit2D_mask'], output['vmask']
+    res = infer_basic2d(scores2d, logit2D_mask, vmask)
+    return res

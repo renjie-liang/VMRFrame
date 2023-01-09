@@ -7,6 +7,7 @@ import torch.nn.init
 from torch.nn import Parameter
 import math
 import pickle
+from utils.engine import infer_basic, infer_basic2d
 
 
 def gen_A_concept(num_classes, t, adj_file, num_path=None, com_path=None):
@@ -165,8 +166,8 @@ class FeatAvgPool(nn.Module):
         self.pool = nn.AvgPool1d(kernel_size, stride)
 
     def forward(self, x):
-        x = self.conv(x.transpose(1, 2)).relu()
-        feat = self.pool(x)
+        feat = self.conv(x.transpose(1, 2)).relu()
+        # feat = self.pool(feat)
         return feat
 
 def build_featpool(cfg):
@@ -267,7 +268,7 @@ class SimPredictor(nn.Module):
 
         queries = self.encode_query(batch_queries, wordlens)
         map2d = self.conv(map2d)
-        map2d = F.tanh(self.bn(map2d))
+        map2d = torch.tanh(self.bn(map2d))
         map2d = self.conv1(map2d)
         return map2d, queries
 
@@ -338,7 +339,7 @@ class CCA(nn.Module):
         self.featpool = build_featpool(cfg) 
         self.feat2d = build_feat2d(cfg)
         self.simpredictor = build_simpredictor(cfg, self.feat2d.mask2d)
-        self.T_fuse_attn = FuseAttention(512, 512, True)
+        self.T_fuse_attn = FuseAttention(cfg.MODEL.CCA.FEATPOOL.HIDDEN_SIZE, cfg.embed_size, True)
         self.C_GCN = C_GCN(cfg.num_attribute, in_channel=cfg.input_channel, t=0.3, embed_size=cfg.embed_size, adj_file=cfg.adj_file,
                                 norm_func=cfg.norm_func_type, num_path=cfg.num_path, com_path=cfg.com_concept)
         
@@ -449,8 +450,6 @@ def collate_fn_CCA(datas):
             # evaluate
             'se_times': se_times,
             'se_fracs': se_fracs,
-            
-            
             }
 
     return res, records
@@ -483,6 +482,7 @@ def train_engine_CCA(model, data, configs):
     from models.loss import lossfun_loc, lossfun_loc2d
     data = {key: value.to(configs.device) for key, value in data.items()}
     output = model(data['words_ids'], data['tmasks'], data['vfeats'], data['vmasks'], data['concept_inputs'])
+    # print(data['vmasks'].sum(dim=1))
 
     label1ds =  data['label1ds']
     label2ds =  data['label2ds']
@@ -494,17 +494,8 @@ def train_engine_CCA(model, data, configs):
     loss = loc_2dloss 
     return loss, output
 
-
 def infer_CCA(output, configs):
-    from utils.engine import infer_basic
-    scores2d = output["scores2d"].sigmoid_()
-    vmask = output["vmask"]
-
-    outer = torch.triu(scores2d, diagonal=0)
-    _, start_index = torch.max(torch.max(outer, dim=2)[0], dim=1)  # (batch_size, )
-    _, end_index = torch.max(torch.max(outer, dim=1)[0], dim=1)  # (batch_size, )
-    
-    sfrac = (start_index/vmask.sum(dim=1)).cpu().numpy()
-    efrac = (end_index/vmask.sum(dim=1)).cpu().numpy()
-    res = np.stack([sfrac, efrac]).T
+    scores2d, vmask = output["scores2d"], output['logit2D_mask']
+    logit2D_mask = generate_2dmask(configs.MODEL.CCA.NUM_CLIPS).to(configs.device)
+    res = infer_basic2d(scores2d, logit2D_mask, vmask)
     return res

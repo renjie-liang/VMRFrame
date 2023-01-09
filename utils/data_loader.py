@@ -3,7 +3,7 @@ from random import shuffle
 import torch
 import numpy as np
 from utils.data_utils import pad_seq, pad_char_seq, pad_video_seq
-from utils.utils import convert_length_to_mask, gene_soft_label, iou_n1
+from utils.utils import convert_length_to_mask, gene_soft_label, iou_n1, score2d_to_moments_scores
 import pandas as pd
 from tqdm import tqdm
 from models import *
@@ -31,7 +31,7 @@ class Dataset(torch.utils.data.Dataset):
         label1d = self.get_dist_idx(sidx, eidx)
         map2d_contrasts = self.get_map2d_contrast(sidx, eidx)
         NER_label = self.get_NER_label(sidx, eidx, vfeat)
-        label2d = self.get_label2d(sidx, eidx)
+        label2d = self.get_label2d(record['s_time'], record['e_time'], record['duration'])
 
         label1d_model1 = self.get_label1d_model(index, record['vid'])
         res = {"record": record,
@@ -116,14 +116,21 @@ class Dataset(torch.utils.data.Dataset):
 
         return NER_label
     
-    def get_label2d(self, sidx, eidx,):
+    def get_label2d(self, stime, etime, duration):
         num_clips = self.max_vlen
-        moment = torch.as_tensor([sidx, eidx])
+        moment = torch.as_tensor([stime, etime])
         iou2d = torch.ones(num_clips, num_clips)
-        grids = iou2d.nonzero(as_tuple=False)    
-        candidates = grids
+        candidates, _ = score2d_to_moments_scores(iou2d, num_clips, duration)
         iou2d = iou_n1(candidates, moment).reshape(num_clips, num_clips)
         return iou2d
+
+        # num_clips = self.max_vlen
+        # moment = torch.as_tensor([sidx, eidx])
+        # iou2d = torch.ones(num_clips, num_clips)
+        # grids = iou2d.nonzero(as_tuple=False)    
+        # candidates = grids
+        # iou2d = iou_n1(candidates, moment).reshape(num_clips, num_clips)
+        # return iou2d
 
     def get_label1d_model(self, index, vid):
         res = self.model1_result[index]["logit1d"]

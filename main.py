@@ -118,7 +118,7 @@ if not args.eval:
             ious = append_ious(ious, records["se_fracs"], props_frac)
             # ious = append_ious(ious, records, props_frac)
         r1i3, r1i5, r1i5, r1i7, mi = get_i345_mi(ious)
-        save_name = os.path.join(ckpt_dir, "best.pkl")
+        save_name = os.path.join(ckpt_dir, "best_{}.pkl".format(configs.model.name))
         save_best_model(mi, model, save_name)
         logger.info("TEST |\tR1I3: {:.2f}\tR1I5: {:.2f}\tR1I7: {:.2f}\tmIoU: {:.2f}\tloss:{:.4f}".format(r1i3, r1i5, r1i7, mi, lossmeter.avg))
         logger.info("")

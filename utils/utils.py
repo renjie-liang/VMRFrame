@@ -263,3 +263,12 @@ def iou_n1(candidates, gt):
     inter = end.min(e) - start.max(s)
     union = end.max(e) - start.min(s)
     return inter.clamp(min=0) / union
+
+
+
+def score2d_to_moments_scores(score2d, num_clips, duration):
+    grids = score2d.nonzero(as_tuple=False)
+    scores = score2d[grids[:, 0], grids[:, 1]]
+    grids[:, 1] += 1
+    moments = grids * duration / num_clips
+    return moments, scores

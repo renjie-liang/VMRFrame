@@ -3,7 +3,7 @@ from models.layers import mask_logits
 from models.loss import lossfun_match, lossfun_loc, append_ious, get_i345_mi, rec_loss_cpl, div_loss_cpl
 import torch.nn.functional as F
 import torch.nn as nn
-
+import numpy as np
 
 
 
@@ -46,9 +46,25 @@ def infer_basic(start_logits, end_logits, vmask):
     _, start_index = torch.max(torch.max(outer, dim=2)[0], dim=1)  # (batch_size, )
     _, end_index = torch.max(torch.max(outer, dim=1)[0], dim=1)  # (batch_size, )
     
-    start_frac = (start_index/vmask.sum(dim=1)).cpu().numpy()
-    end_frac = (end_index/vmask.sum(dim=1)).cpu().numpy()
-    return start_frac, end_frac
+    sfrac = (start_index/vmask.sum(dim=1)).cpu().numpy()
+    efrac = (end_index/vmask.sum(dim=1)).cpu().numpy()
+    res = np.stack([sfrac, efrac]).T
+    return res
+
+
+
+def infer_basic2d(scores2d, logit2D_mask, vmask):
+    scores2d = scores2d.sigmoid_() * logit2D_mask
+
+    outer = torch.triu(scores2d, diagonal=0)
+    _, start_index = torch.max(torch.max(outer, dim=2)[0], dim=1)  # (batch_size, )
+    _, end_index = torch.max(torch.max(outer, dim=1)[0], dim=1)  # (batch_size, )
+    
+    sfrac = (start_index/vmask.sum(dim=1)).cpu().numpy()
+    efrac = (end_index/vmask.sum(dim=1)).cpu().numpy()
+    res = np.stack([sfrac, efrac]).T
+    return res
+
 
 def infer_SeqPAN(output, configs):
     start_logits = output["start_logits"]
