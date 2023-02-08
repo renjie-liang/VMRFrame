@@ -129,6 +129,9 @@ def get_vfeat_len(configs):
 
 def dataset_gen(data, vfeat_lens, word_dict, char_dict, max_pos_len, scope):
     dataset = list()
+    from transformers import BertTokenizer
+    tokenizer = BertTokenizer.from_pretrained('bert-base-cased')
+
     for record in tqdm(data, total=len(data), desc='process {} data'.format(scope)):
         vid = record['vid']
         if vid not in vfeat_lens:
@@ -137,6 +140,14 @@ def dataset_gen(data, vfeat_lens, word_dict, char_dict, max_pos_len, scope):
         s_ind, e_ind = time_idx([record['s_time'], record['e_time']], record['duration'], vfeat_lens[vid])
         if e_ind > vfeat_lens[vid]:
             print(record)
+
+        bert_input = tokenizer(" ".join(record['words']), padding='max_length', 
+                       max_length = max_pos_len, 
+                       truncation=True,
+                       return_tensors="pt")
+        bert_id = bert_input["input_ids"]
+        bert_mask = bert_input["attention_mask"]
+
 
         word_ids, char_ids = [], []
         for word in record['words'][0:max_pos_len]:
@@ -155,13 +166,46 @@ def dataset_gen(data, vfeat_lens, word_dict, char_dict, max_pos_len, scope):
                 'e_ind': int(e_ind), 
                 'v_len': vfeat_lens[vid], 
                 'w_ids': word_ids,
-                'c_ids': char_ids
+                'c_ids': char_ids,
+                'bert_id':bert_id,
+                "bert_mask":bert_mask,
                 }
         dataset.append(result)
     return dataset
 
 
 def generate_dataset(configs, cache_path):
+    vfeat_lens = get_vfeat_len(configs)
+    processor = CharadesProcessor()
+    train_data = processor.convert(configs.paths.train_path)
+    test_data = processor.convert(configs.paths.test_path)
+    if configs.paths.val_path == '':
+        data_list = [train_data, test_data]
+    else:
+        val_data = processor.convert(configs.paths.val_path)
+        data_list = [train_data, val_data, test_data]
+
+    # generate dataset
+    word_dict, char_dict, vectors = vocab_emb_gen(data_list, configs.paths.glove_path)
+    train_set = dataset_gen(train_data, vfeat_lens, word_dict, char_dict, configs.model.vlen, 'train') # ???? active
+    test_set = dataset_gen(test_data, vfeat_lens, word_dict, char_dict, configs.model.vlen, 'test')
+    if configs.paths.val_path == '':
+        val_set = None
+        n_val = 0 
+    else:
+        val_set = dataset_gen(val_data, vfeat_lens, word_dict, char_dict, configs.model.vlen, 'val')
+        n_val = len(val_set)
+
+    # save dataset
+    dataset = {'train_set': train_set, 'val_set': val_set, 'test_set': test_set, 'word_dict': word_dict,
+               'char_dict': char_dict, 'word_vector': vectors, 'n_train': len(train_set), 'n_val': n_val,
+               'n_test': len(test_set), 'n_words': len(word_dict), 'n_chars': len(char_dict)}
+    save_pickle(dataset, cache_path)
+    return dataset
+
+
+
+def generate_dataset_BAN(configs, cache_path):
     vfeat_lens = get_vfeat_len(configs)
     # data_dir = os.path.join('data', 'dataset', configs.task + "_" + configs.suffix)
     # load data
@@ -194,54 +238,4 @@ def generate_dataset(configs, cache_path):
                'char_dict': char_dict, 'word_vector': vectors, 'n_train': len(train_set), 'n_val': n_val,
                'n_test': len(test_set), 'n_words': len(word_dict), 'n_chars': len(char_dict)}
     save_pickle(dataset, cache_path)
-    return dataset
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    # load data
-    if configs.task == 'charades':
-        processor = MyCharadesProcessor()
-    # elif configs.task == 'activitynet':
-    #     processor = ActivityNetProcessor()
-    # elif configs.task == 'tacos':
-    #     processor = TACoSProcessor()
-    else:
-        raise ValueError('Unknown task {}!!!'.format(configs.task))
-
-
-    # train_data, val_data, test_data = processor.convert(data_dir)
-    train_data = processor.convert(configs.paths.train_path, 'train')
-    test_data = processor.convert(configs.paths.test_path, 'test')
-    # train_data, val_data, test_data = processor.convert(data_dir)
-
-
-    # generate dataset
-    # data_list = [train_data, test_data] if val_data is None else [train_data, val_data, test_data]
-    word_dict, char_dict, vectors = vocab_emb_gen(data_list, configs.paths.glove_path)
-
-    train_set = dataset_gen_active(train_data, vfeat_lens, word_dict, char_dict, configs.model.vlen, 'train')
-    val_set = None if val_data is None else dataset_gen(val_data, vfeat_lens, word_dict, char_dict, configs.model.vlen, 'val')
-    test_set = dataset_gen(test_data, vfeat_lens, word_dict, char_dict, configs.model.vlen, 'test')
-    
-    
-    # save dataset
-    n_val = 0 if val_set is None else len(val_set)
-    dataset = {'train_set': train_set, 'val_set': val_set, 'test_set': test_set, 'word_dict': word_dict,
-               'char_dict': char_dict, 'word_vector': vectors, 'n_train': len(train_set), 'n_val': n_val,
-               'n_test': len(test_set), 'n_words': len(word_dict), 'n_chars': len(char_dict)}
-    save_pickle(dataset, save_path)
     return dataset

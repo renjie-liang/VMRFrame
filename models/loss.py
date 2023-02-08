@@ -25,10 +25,10 @@ def lossfun_match(m_probs, label_embs, m_labels, vmask):
     # NLLLoss
     # loss_fun = nn.NLLLoss()
     loss_fun = nn.CrossEntropyLoss()
+    m_labels = F.one_hot(m_labels).float()
     m_loss = loss_fun(m_probs, m_labels)
     # m_loss = loss_fun(m_probs.transpose(1,2), m_labels)
 
-    # m_labels = F.one_hot(m_labels)
     loss_per_sample = -torch.sum(m_labels * m_probs, dim=-1)
     m_loss =torch.sum(loss_per_sample * vmask, dim=-1) / (torch.sum(vmask, dim=-1) + 1e-12)
     m_loss = m_loss.mean()
@@ -40,8 +40,8 @@ def lossfun_match(m_probs, label_embs, m_labels, vmask):
     return m_loss
 
 def lossfun_loc(start_logits, end_logits, s_labels, e_labels, vmask):
-    start_logits = mask_logits(start_logits, vmask)
-    end_logits = mask_logits(end_logits, vmask)
+    # start_logits = mask_logits(start_logits, vmask)
+    # end_logits = mask_logits(end_logits, vmask)
 
     start_losses = F.cross_entropy(start_logits, s_labels)
     end_losses = F.cross_entropy(end_logits, e_labels)
@@ -75,14 +75,24 @@ def lossfun_loc(start_logits, end_logits, s_labels, e_labels, vmask):
 #     return start_frac, end_frac
 
 
-def append_ious(ious, records, start_fracs, end_fracs):
-    for record, sp, ep in zip(records, start_fracs, end_fracs):
-        sta_gtfrac = record['s_time']/record["duration"]
-        end_gtfrac = record['e_time']/record["duration"]
-        iou = calculate_iou([sp, ep], [sta_gtfrac, end_gtfrac])
+def append_ious(ious, se_gts, se_props):
+    # start_fracs, end_fracs = se_props[:, 0], se_props[:, 1]
+    for i in range(len(se_gts)):
+        gt_se = se_gts[i]
+        prop_se = se_props[i]
+        iou = calculate_iou(gt_se, prop_se)
         ious.append(iou)
-    
     return ious
+
+# def append_ious(ious, records, props_frac):
+#     start_fracs, end_fracs = props_frac[:, 0], props_frac[:, 1]
+#     for record, sp, ep in zip(records, start_fracs, end_fracs):
+#         sta_gtfrac = record['s_time']/record["duration"]
+#         end_gtfrac = record['e_time']/record["duration"]
+#         iou = calculate_iou([sp, ep], [sta_gtfrac, end_gtfrac])
+#         ious.append(iou)
+    
+#     return ious
 
 
 def get_i345_mi(ious):
@@ -97,7 +107,6 @@ def get_i345_mi(ious):
 
 
 # ### CPL
-
 def cal_nll_loss(logit, idx, mask, weights=None):
     eps = 0.1
     acc = (logit.max(dim=-1)[1]==idx).float()
@@ -151,3 +160,14 @@ def div_loss_cpl(words_logit, gauss_weight, configs):
 
     return div_loss.mean() * configs.others.cpl_div_loss_alhpa
 
+
+def lossfun_loc2d(scores2d, labels2d, mask2d):
+    def scale(iou, min_iou, max_iou):
+        return (iou - min_iou) / (max_iou - min_iou)
+
+    labels2d = scale(labels2d, 0.5, 1.0).clamp(0, 1)
+    loss_loc2d = F.binary_cross_entropy_with_logits(
+        scores2d.squeeze().masked_select(mask2d),
+        labels2d.masked_select(mask2d)
+    )
+    return loss_loc2d
