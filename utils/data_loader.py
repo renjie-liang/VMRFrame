@@ -18,8 +18,8 @@ class Dataset(torch.utils.data.Dataset):
         self.video_features = video_features
         self.max_vlen = configs.model.vlen
 
-        with open(configs.paths.result_model1_path, mode='rb') as f:
-            self.model1_result = pickle.load(f)
+        # with open(configs.paths.result_model1_path, mode='rb') as f:
+        #     self.model1_result = pickle.load(f)
 
     def __getitem__(self, index):
         index = index
@@ -33,7 +33,7 @@ class Dataset(torch.utils.data.Dataset):
         NER_label = self.get_NER_label(sidx, eidx, vfeat)
         label2d = self.get_label2d(record['s_time'], record['e_time'], record['duration'])
 
-        label1d_model1 = self.get_label1d_model(index, record['vid'])
+        # label1d_model1 = self.get_label1d_model(index, record['vid'])
         res = {"record": record,
                "max_vlen": self.max_vlen,
                "vfeat": vfeat,
@@ -43,7 +43,7 @@ class Dataset(torch.utils.data.Dataset):
                "bert_tmask": bert_tmask,
                "label1d": label1d,
                "label2d": label2d,
-               "label1d_model1": label1d_model1,
+            #    "label1d_model1": label1d_model1,
                "NER_label": NER_label,
                "map2d_contrast": map2d_contrasts,
                "se_time": [record["s_time"], record["e_time"]],
