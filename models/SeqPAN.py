@@ -94,13 +94,13 @@ def collate_fn_SeqPAN(datas):
 
     records, se_times, se_fracs = [], [], []
     vfeats, words_ids, chars_ids = [], [], []
-    dist_idxs, NER_labels = [], []
+    label1ds, NER_labels = [], []
     max_vlen = datas[0]["max_vlen"]
     for d in datas:
         records.append(d["record"])
         vfeats.append(d["vfeat"])
         words_ids.append(d["words_id"])
-        dist_idxs.append(d["dist_idx"])
+        label1ds.append(d["label1d"])
         se_times.append(d["se_time"])
         se_fracs.append(d["se_frac"])
         chars_ids.append(d["chars_id"])
@@ -120,7 +120,7 @@ def collate_fn_SeqPAN(datas):
     vmasks = convert_length_to_mask(vlens, max_len=max_vlen)
     
     # process label
-    dist_idxs = torch.stack(dist_idxs)
+    label1ds = torch.stack(label1ds)
     NER_labels = torch.stack(NER_labels)
     
     se_times = torch.as_tensor(se_times, dtype=torch.float)
@@ -134,7 +134,7 @@ def collate_fn_SeqPAN(datas):
             'vmasks': vmasks,
 
             # labels
-            'dist_idxs': dist_idxs,
+            'label1ds': label1ds,
             'NER_labels': NER_labels,
 
             # evaluate
@@ -156,8 +156,8 @@ def train_engine_SeqPAN(model, data, configs):
     slogits = output["slogits"]
     elogits = output["elogits"]
 
-    dist_idxs =  data['dist_idxs']
-    loc_loss = lossfun_loc(slogits, elogits, dist_idxs[:, 0, :], dist_idxs[:, 1, :], data['vmasks'])
+    label1ds =  data['label1ds']
+    loc_loss = lossfun_loc(slogits, elogits, label1ds[:, 0, :], label1ds[:, 1, :], data['vmasks'])
     m_loss = lossfun_match(output["match_score"], output["label_embs"],  data["NER_labels"],  data['vmasks'])
 
     loss =loc_loss #+ m_loss
@@ -170,7 +170,5 @@ def infer_SeqPAN(output, configs):
     start_logits = output["slogits"]
     end_logits = output["elogits"]
     vmask = output["vmask"]
-    sfrac, efrac = infer_basic(start_logits, end_logits, vmask)
-
-    res = np.stack([sfrac, efrac]).T
+    res = infer_basic(start_logits, end_logits, vmask)
     return res

@@ -7,8 +7,8 @@
 
     "feature_path": "/storage_fast/rjliang/charades/i3d",
     "glove_path": "/storage_fast/rjliang/glove/glove.840B.300d.txt",
-    "train_path": "data/charades_clean/train.json",
-    "test_path": "data/charades_clean/test.json",
+    "train_path": "data/charades_gt/train.json",
+    "test_path": "data/charades_gt/test.json",
     "val_path": ""
   },
 
@@ -22,6 +22,7 @@
 
   "model": {
     "name": "SeqPAN",
+    "sample_type": "original",
     "vlen": 64,
     "vdim": 1024,
     "dim": 128,

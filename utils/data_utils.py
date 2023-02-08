@@ -25,23 +25,15 @@ import torch.nn.functional as F
 #     return new_visual_feature
 
 
-# def load_video_features(root, max_vlen):
-#     video_features = dict()
-#     filenames = glob.glob(os.path.join(root, "*.npy"))
-#     for filename in tqdm(filenames, total=len(filenames), desc="load video features"):
-#         video_id = filename.split("/")[-1].split(".")[0]
-#         feature = np.load(filename)
-#         feature = torch.FloatTensor(feature)
-#         video_features[video_id] = sample_vfeat_linear(feature, max_vlen)
-#     return video_features
 class VideoFeatureDict():
-    def __init__(self, root, max_vlen, debug):
+    def __init__(self, root, max_vlen, debug, sample_method):
         self.debug = debug
         self.max_vlen = max_vlen
         self.path_dict = dict()
         self.video_features = dict()
-
         filenames = glob.glob(os.path.join(root, "*.npy"))
+        self.sample_method = sample_method
+
         if debug:
             for filename in tqdm(filenames, total=len(filenames), desc="load video path"):
                 video_id = filename.split("/")[-1].split(".")[0]
@@ -51,25 +43,31 @@ class VideoFeatureDict():
                 video_id = filename.split("/")[-1].split(".")[0]
                 feature = np.load(filename)
                 feature = torch.FloatTensor(feature)
-                self.video_features[video_id] = sample_vfeat_linear(feature, self.max_vlen)
+                self.video_features[video_id] = sample_vfeat_linear(feature, self.max_vlen, self.sample_method)
 
     def __getitem__(self, k):
         if self.debug:
             filename = self.path_dict[k]
             feature = np.load(filename)
             feature = torch.FloatTensor(feature)
-            feature = sample_vfeat_linear(feature, self.max_vlen)
+            feature = sample_vfeat_linear(feature, self.max_vlen, self.sample_method)
             return feature
         else:
             return self.video_features[k]
 
 
-def sample_vfeat_linear(v_feat, max_seq_len):
-        
-    output = F.interpolate(v_feat.transpose(0, 1).unsqueeze(0),
-                    size=max_seq_len, mode='linear',
-                    align_corners=False)
-    output = output[0, ...].transpose(0, 1)
+
+def sample_vfeat_linear(v_feat, max_seq_len, sample_method):
+    if sample_method == "original":
+        output = v_feat
+    elif sample_method == "fixlen":
+        output = F.interpolate(v_feat.transpose(0, 1).unsqueeze(0),
+                        size=max_seq_len, 
+                        mode='linear',
+                        align_corners=False)
+        output = output[0, ...].transpose(0, 1)
+    elif sample_method == "padding":
+        raise
     return output
 
 def pad_seq(sequences, pad_tok=None, max_length=None):
