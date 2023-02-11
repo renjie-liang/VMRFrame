@@ -15,22 +15,27 @@
   },
 
   "train": {
-    "epochs": 30,
-    "batch_size": 32,
-    "lr": 0.0008,
-    "warmup_proportion": 0.01,
+    "epochs": 100,
+    "batch_size": 16,
+    "lr": 0.0001,
+    "warmup_proportion": 0.00,
     "clip_norm": 1.0
   },
-
+  "dataprocess":{
+    "truncate": "random",
+    "truncate_range": [0.9, 1.0],
+    "sample_type": "padding"
+  },
   "model": {
     "name": "BaseFast",
     "vlen": 64,
+    "tlen": 64,
     "vdim": 1024,
     "dim": 128,
     "num_heads": 4,
     "word_dim": 300,
     "char_dim": 100,
-    "droprate": 0.1
+    "droprate": 0.2
   },
   "others":
   {

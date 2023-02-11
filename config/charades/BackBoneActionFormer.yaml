@@ -9,30 +9,34 @@
     "glove_path": "/storage_fast/rjliang/glove/glove.840B.300d.txt",
     "train_path": "data/charades_gt/train.json",
     "test_path": "data/charades_gt/test.json",
-    "result_model1_path": "./data/charades_gt/SeqPAN_logits.pkl",
     "val_path": ""
   },
 
   "train": {
-    "epochs": 30,
+    "epochs": 50,
     "batch_size": 128,
     "lr": 0.0008,
-    "warmup_proportion": 0.01,
+    "warmup_proportion": 0.05,
     "clip_norm": 1.0
   },
-
+    "dataprocess":{
+        "video_augmentation": {
+                                "unchanged": None
+                                # "erosion":    0.05,
+                                # "dilation":    0.05,
+                              },
+        "sample_type": "samelen",
+        "label_threshold": 0.01
+    },
   "model": {
-    "name": "BaseFast",
-    "sample_type": "fixlen",
-    "vlen": 64,
+    "name": "BackBoneActionFormer",
+    "vlen": 192,
+    "tlen": 30,
     "vdim": 1024,
     "dim": 128,
     "num_heads": 4,
     "word_dim": 300,
     "char_dim": 100,
-    "droprate": 0.1
+    "droprate": 0.2
   },
-  "others":
-  {
-  }
 }

@@ -1,0 +1,74 @@
+{
+    "task" : "anet",
+    "paths": {
+        "ckpt_dir": "./ckpt",
+        "cache_dir" : "./data_pkl/",
+        "feature_path": "/storage_fast/rjliang/activitynet/i3d",
+        "glove_path": "/storage_fast/rjliang/glove/glove.840B.300d.txt",
+        "train_path": "./data/anet_gt/train.json",
+        "test_path": "./data/anet_gt/test.json",
+        "val_path": ""
+    },
+
+    "train": {
+        "epochs": 100,
+        "batch_size": 16,
+        "lr": 0.0001,
+        "warmup_proportion": 0.00,
+        "clip_norm": 1.0
+    },
+    "dataprocess":{
+        "video_augmentation": {
+                                # "unchanged": None
+                                "erosion":    0.05,
+                                # "dilation":    0.05,
+                              },
+        "sample_type": "truncation",
+        "label_threshold": 0.01
+    },
+
+    "model": {
+        "name": "OneTeacher_SoftLabel",
+        "vlen": 100,
+        "tlen": 100,
+        "vdim": 1024,
+        "dim": 128,
+        "num_heads": 4,
+        "word_dim": 300,
+        "char_dim": 100,
+        "droprate": 0.2
+    },
+
+    "teacher0": {
+        "model": {
+            "name": "BAN",
+            "vlen": 64,
+            "vdim": 1024,
+            "dim": 256,
+            "lstm_layer": 2,
+            "query_embed_dim": 300,
+            "fuse_dim": 512,
+            "pooling_counts": [15, 8, 8],
+            "sparse_sample": true,
+            "contrast_dim": 128,
+            "droprate": 0.1,
+            "topk": 20,
+            "neighbor": 3,
+            "negative": 0,
+            "prop_num": 80,
+            "gcn":{
+                "num_blocks": 2,
+                "k": 80,
+                "hidden_size": 512
+                },
+        },
+
+    },
+
+    "loss":
+    {
+        sd: 1.0,
+        t0: 1.0,
+        temperature: 3
+    }
+}

@@ -5,8 +5,6 @@ import torch.nn.functional as F
 import torch.nn as nn
 import numpy as np
 
-
-
 def train_engine_CPL(model, data, configs):
     device = configs.device
     _, vfeats, vmask, word_ids, char_ids, tmask, s_labels, e_labels, m_labels = data
@@ -27,12 +25,6 @@ def train_engine_CPL(model, data, configs):
     output["vmask"] = vmask
     return loss, output
 
-
-
-
-
-
-
 def infer_basic(start_logits, end_logits, vmask):
     L = start_logits.shape[1]
     start_logits = mask_logits(start_logits, vmask)
@@ -50,6 +42,7 @@ def infer_basic(start_logits, end_logits, vmask):
     efrac = (end_index/vmask.sum(dim=1)).cpu().numpy()
     res = np.stack([sfrac, efrac]).T
     return res
+
 
 
 
@@ -96,3 +89,4 @@ def infer_CPL(output, configs): ## don't consider vmask
 
     return start_fracs, end_fracs
         
+

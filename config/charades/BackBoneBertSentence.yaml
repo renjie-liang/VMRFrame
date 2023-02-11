@@ -13,24 +13,30 @@
   },
 
   "train": {
-    "epochs": 30,
-    "batch_size": 32,
+    "epochs": 50,
+    "batch_size": 128,
     "lr": 0.0008,
-    "warmup_proportion": 0.01,
+    "warmup_proportion": 0.05,
     "clip_norm": 1.0
   },
-
+    "dataprocess":{
+        "video_augmentation": {
+                                "unchanged": None
+                                # "erosion":    0.05,
+                                # "dilation":    0.05,
+                              },
+        "sample_type": "truncation",
+        "label_threshold": 0.01
+    },
   "model": {
-    "name": "SeqPAN",
+    "name": "BackBoneBertSentence",
     "vlen": 64,
+    "tlen": 64,
     "vdim": 1024,
     "dim": 128,
     "num_heads": 4,
     "word_dim": 300,
     "char_dim": 100,
-    "droprate": 0.1
+    "droprate": 0.2
   },
-  "others":
-  {
-  }
 }

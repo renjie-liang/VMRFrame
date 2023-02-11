@@ -6,10 +6,11 @@ import numpy as np
 
 from models.layers import Embedding, VisualProjection, FeatureEncoder, CQAttention, CQConcatenate, Conv1D, SeqPANPredictor
 from models.layers import DualAttentionBlock
+from utils.utils import load_pickle
 
-class BaseFast(nn.Module):
+class MultiTeacher(nn.Module):
     def __init__(self, configs, word_vectors):
-        super(BaseFast, self).__init__()
+        super(MultiTeacher, self).__init__()
         self.configs = configs
         dim = configs.model.dim
         droprate = configs.model.droprate
@@ -20,12 +21,9 @@ class BaseFast(nn.Module):
                                        word_vectors=word_vectors,
                                        droprate=droprate)
 
-        # self.tfeat_encoder = FeatureEncoder(dim=dim, kernel_size=7, num_layers=4, max_pos_len=max_pos_len, droprate=droprate)
                                        
-        self.video_affine = VisualProjection(visual_dim=configs.model.vdim, dim=dim,
-                                             droprate=droprate)
-        self.vfeat_encoder = FeatureEncoder(dim=dim, kernel_size=7, num_layers=2,
-                                              max_pos_len=max_pos_len, droprate=droprate)
+        self.video_affine = VisualProjection(visual_dim=configs.model.vdim, dim=dim,droprate=droprate)
+        self.vfeat_encoder = FeatureEncoder(dim=dim, kernel_size=7, num_layers=2, max_pos_len=max_pos_len, droprate=droprate)
 
 
         self.dual_attention_block_1 = DualAttentionBlock(configs=configs, dim=dim, num_heads=configs.model.num_heads, 
@@ -50,7 +48,6 @@ class BaseFast(nn.Module):
         torch.cuda.synchronize()
         start = time.time()
         
-        
         B = vmask.shape[0]
         tfeat = self.text_encoder(word_ids, char_ids)
         vfeat = self.video_affine(vfeat_in)
@@ -59,13 +56,13 @@ class BaseFast(nn.Module):
         tfeat = self.vfeat_encoder(tfeat)
 
 
-        # vfeat_ = self.dual_attention_block_1(vfeat, tfeat, vmask, tmask)
-        # tfeat_ = self.dual_attention_block_1(tfeat, vfeat, tmask, vmask)
-        # vfeat, tfeat = vfeat_, tfeat_
+        vfeat_ = self.dual_attention_block_1(vfeat, tfeat, vmask, tmask)
+        tfeat_ = self.dual_attention_block_1(tfeat, vfeat, tmask, vmask)
+        vfeat, tfeat = vfeat_, tfeat_
 
-        # vfeat_ = self.dual_attention_block_2(vfeat, tfeat, vmask, tmask)
-        # tfeat_ = self.dual_attention_block_2(tfeat, vfeat, tmask, vmask)
-        # vfeat, tfeat = vfeat_, tfeat_
+        vfeat_ = self.dual_attention_block_2(vfeat, tfeat, vmask, tmask)
+        tfeat_ = self.dual_attention_block_2(tfeat, vfeat, tmask, vmask)
+        vfeat, tfeat = vfeat_, tfeat_
 
 
         t2v_feat = self.q2v_attn(vfeat, tfeat, vmask, tmask)
@@ -74,8 +71,6 @@ class BaseFast(nn.Module):
 
         # f_tfeat = torch.max(tfeat * tmask[1, 1, None], dim=1)[0]
         # fuse_feat = vfeat * f_tfeat.unsqueeze(1)
-
-
 
         match_logits = self.match_conv1d(fuse_feat)
         match_score = F.gumbel_softmax(match_logits, tau=0.3)
@@ -96,38 +91,76 @@ class BaseFast(nn.Module):
                     "consume_time": consume_time,
                     }
 
-from utils.BaseDataset import BaseDataset, BaseCollate
 
-class BaseFastDataset(BaseDataset):
+from utils.BaseDataset import BaseDataset, BaseCollate
+class MultiTeacherDataset(BaseDataset):
     def __init__(self, dataset, video_features, configs, loadertype):
         super().__init__(dataset, video_features, configs, loadertype)
+        self.t0_result = ""
+        self.loadertype = loadertype
+        if loadertype == "train":
+            self.logits_t0 = load_pickle(configs.loss.t0_path)
+            self.logits_t1 = load_pickle(configs.loss.t1_path)
+        # elif loadertype == "test":
+        #     self.logits_t0 = None
+            # self.logits_t1 = None
+
     def __getitem__(self, index):
         res = BaseDataset.__getitem__(self, index)
+        if self.loadertype == "train":
+            label1d_t0 = self.load_label1d_teach(self.logits_t0, index, res['vid'], res['vfeat'].shape[0])
+            res["label1d_t0"] = label1d_t0
+            label1d_t1 = self.load_label1d_teach(self.logits_t1, index, res['vid'], res['vfeat'].shape[0])
+            res["label1d_t1"] = label1d_t1
+
         return res
-    
-class BaseFastCollate(BaseCollate):
+
+class MultiTeacherCollate(BaseCollate):
     def __call__(self, datas):
-        return super().__call__(datas) 
+        res, records = super().__call__(datas)
+        if "label1d_t0" in datas[0].keys():
+            label1d_t0s = []
+            for d in datas:
+                label1d_t0s.append(d["label1d_t0"])
+            res["label1d_t0s"] = torch.stack(label1d_t0s)
+
+        if "label1d_t1" in datas[0].keys():
+            label1d_t1s = []
+            for d in datas:
+                label1d_t1s.append(d["label1d_t1"])
+            res["label1d_t1s"] = torch.stack(label1d_t0s)
+        return res, records
 
 import time
-def train_engine_BaseFast(model, data, configs, runtype):
+from models.loss import lossfun_softloc
+
+def train_engine_MultiTeacher(model, data, configs, runtype):
     from models.loss import lossfun_loc, lossfun_match
     data = {key: value.to(configs.device) for key, value in data.items()}
-
     output = model(data['words_ids'], data['char_ids'], data['vfeats'], data['vmasks'], data['tmasks'])
 
+    label1ds =  data['label1ds']
+    vmasks =  data['vmasks']
     slogits = torch.sigmoid(output["slogits"])
     elogits = torch.sigmoid(output["elogits"])
+    loc_loss = lossfun_loc(slogits, elogits, label1ds[:, 0, :], label1ds[:, 1, :], vmasks)
+    # m_loss = lossfun_match(output["match_score"], output["label_embs"],  data["NER_labels"],  data['vmasks'])
+    loss = loc_loss
 
-    label1ds =  data['label1ds']
-    loc_loss = lossfun_loc(slogits, elogits, label1ds[:, 0, :], label1ds[:, 1, :], data['vmasks'])
-    m_loss = lossfun_match(output["match_score"], output["label_embs"],  data["NER_labels"],  data['vmasks'])
+    # t0
+    if runtype == "train":
+        label1d_t0s = data['label1d_t0s']
+        loss_student_t0 = lossfun_softloc(slogits, elogits, label1d_t0s[:, 0, :], label1d_t0s[:, 1, :], vmasks, configs.loss.t0_emperature)
+        loss += loss_student_t0 * configs.loss.t0_cof
 
-    loss =loc_loss + m_loss
+        label1d_t1s = data['label1d_t1s']
+        loss_student_t1 = lossfun_softloc(slogits, elogits, label1d_t1s[:, 0, :], label1d_t1s[:, 1, :], vmasks, configs.loss.t1_emperature)
+        loss += loss_student_t1 * configs.loss.t1_cof
+
     return loss, output
 
 
-def infer_BaseFast(output, configs):
+def infer_MultiTeacher(output, configs):
     from utils.engine import infer_basic
 
     start_logits = output["slogits"]

@@ -4,7 +4,7 @@ ckpt
 data
 data_pkl
 figures
-
-
+results
+images
 
 *__pycache__

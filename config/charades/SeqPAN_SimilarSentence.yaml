@@ -1,0 +1,42 @@
+{
+  "task" : "charades",
+
+  "paths": {
+    "ckpt_dir": "./ckpt",
+    "cache_dir" : "./data_pkl/",
+
+    "feature_path": "/storage_fast/rjliang/charades/i3d",
+    "glove_path": "/storage_fast/rjliang/glove/glove.840B.300d.txt",
+    "train_path": "data/charades_SimilarSentence/train.json",
+    "test_path": "data/charades_SimilarSentence/test.json",
+    "val_path": ""
+  },
+
+  "train": {
+    "epochs": 50,
+    "batch_size": 128,
+    "lr": 0.0001,
+    "warmup_proportion": 0.05,
+    "clip_norm": 1.0
+  },
+    "dataprocess":{
+        "video_augmentation": {
+                                "unchanged": None
+                                # "erosion":    0.05,
+                                # "dilation":    0.05,
+                              },
+        "sample_type": "truncation",
+        "label_threshold": 0.01
+    },
+  "model": {
+    "name": "SeqPAN",
+    "vlen": 64,
+    "tlen": 64,
+    "vdim": 1024,
+    "dim": 128,
+    "num_heads": 4,
+    "word_dim": 300,
+    "char_dim": 100,
+    "droprate": 0.2
+  }
+}

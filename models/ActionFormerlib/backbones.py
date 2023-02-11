@@ -160,7 +160,6 @@ class ConvTransformerBackbone(nn.Module):
             x, mask = self.branch[idx](x, mask)
             out_feats += (x, )
             out_masks += (mask, )
-
         return out_feats, out_masks
 
 

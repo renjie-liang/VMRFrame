@@ -11,48 +11,22 @@ import glob
 
 PAD, UNK = "<PAD>", "<UNK>"
 
-class CharadesProcessor:
-    def __init__(self):
-        super(CharadesProcessor, self).__init__()
-        # self.idx_counter = 0
-        pass
-
-    # def reset_idx_counter(self):
-    #     # self.idx_counter = 0
-    #     pass
-
-    def process_data(self, data):
-        results = []
-        for record in tqdm(data, total=len(data), desc='process charades_active'):
-            vid, duration, (start_time, end_time), sentence = record[:4]
-            if len(record) > 4:
-                active_weight = record[-1]
-            else:
-                active_weight = None
-
-            # start_time, end_time = gt_label
-            words = word_tokenize(sentence.strip().lower(), language="english")
-
-            tmp = {     
-                    # 'sample_id' : self.idx_counter,
-                    'vid'       : str(vid), 
-                    's_time'    : start_time, 
-                    'e_time'    : end_time,
-                    'duration'  : duration, 
-                    'words'     : words, 
-                    'active_weight' :active_weight
-                }
-            results.append(tmp)
-            # self.idx_counter += 1
-        return results
-
-    def convert(self, data_file):
-        # load raw data
-        data_json = load_json(data_file)
-        data_collect = self.process_data(data_json)
-        return data_collect
-
-
+def process_data(data_file):
+    data = load_json(data_file)
+    results = []
+    for record in tqdm(data, total=len(data), desc='process dataset'):
+        vid, duration, (stime, etime), sentence = record[:4]
+        words = word_tokenize(sentence.strip().lower(), language="english")
+        tmp = {     
+                'vid'       : str(vid), 
+                'stime'     : stime, 
+                'etime'     : etime,
+                'duration'  : round(duration, 2), 
+                'sentence'  : sentence, 
+                'words'     : words, 
+            }
+        results.append(tmp)
+    return results
 
 def load_glove(glove_path):
     vocab = list()
@@ -107,11 +81,9 @@ def vocab_emb_gen(datasets, emb_path):
 
 def load_dataset(configs):
     os.makedirs(configs.paths.cache_dir, exist_ok=True)
-    cache_path = os.path.join(configs.paths.cache_dir, '{}_{}_{}.pkl'.format(configs.task, configs.model.vlen,configs.suffix))
+    cache_path = os.path.join(configs.paths.cache_dir, '{}_{}.pkl'.format(configs.task,configs.suffix))
     if not os.path.exists(cache_path):
         generate_dataset(configs, cache_path)
-        # dataset = replace_data(dataset, data_dir, cache_path, configs.task)
-        # return dataset
     return load_pickle(cache_path)
 
 
@@ -122,12 +94,12 @@ def get_vfeat_len(configs):
     for vpath in tqdm(vlen_list, desc="get video feature lengths"):
         tmp = os.path.split(vpath)
         vid = tmp[-1][:-4]
-        ll = np.load(vpath).shape[0]
-        vfeat_lens[vid] = min(configs.model.vlen, ll)
+        vfeat_lens[vid] = np.load(vpath).shape[0]
+        # vfeat_lens[vid] = min(configs.model.vlen, np.load(vpath).shape[0])
     return vfeat_lens 
 
 
-def dataset_gen(data, vfeat_lens, word_dict, char_dict, max_pos_len, scope):
+def dataset_gen(data, vfeat_lens, word_dict, char_dict, max_tlen, scope):
     dataset = list()
     from transformers import BertTokenizer
     tokenizer = BertTokenizer.from_pretrained('bert-base-cased')
@@ -137,20 +109,24 @@ def dataset_gen(data, vfeat_lens, word_dict, char_dict, max_pos_len, scope):
         if vid not in vfeat_lens:
             continue
         # s_ind, e_ind, _ = time_to_index(record['s_time'], record['e_time'], vfeat_lens[vid], record['duration']) ### ???? replace???
-        s_ind, e_ind = time_idx([record['s_time'], record['e_time']], record['duration'], vfeat_lens[vid])
-        if e_ind > vfeat_lens[vid]:
+        # s_ind, e_ind = time_idx([record['s_time'], record['e_time']], record['duration'], vfeat_lens[vid])
+        # if e_ind > vfeat_lens[vid]:
+        #     print(record)
+        if record['etime'] > record['duration']:
             print(record)
+            record['etime'] = record['duration']
 
-        bert_input = tokenizer(" ".join(record['words']), padding='max_length', 
-                       max_length = max_pos_len, 
-                       truncation=True,
-                       return_tensors="pt")
-        bert_id = bert_input["input_ids"]
-        bert_mask = bert_input["attention_mask"]
+        sfrac, efrac = record['stime'] / record['duration'], record['etime'] / record['duration']
+        assert 0.0 <= sfrac <= 1.0, record
+        assert 0.0 <= efrac <= 1.0, record
 
+        # bert_input = tokenizer(" ".join(record['words']), padding='max_length', 
+        #                max_length = max_tlen,  truncation=True, return_tensors="pt")
+        # bert_id = bert_input["input_ids"]
+        # bert_mask = bert_input["attention_mask"]
 
         word_ids, char_ids = [], []
-        for word in record['words'][0:max_pos_len]:
+        for word in record['words'][0:max_tlen]:
             word_id = word_dict[word] if word in word_dict else word_dict[UNK]
             char_id = [char_dict[char] if char in char_dict else char_dict[UNK] for char in word]
             word_ids.append(word_id)
@@ -158,17 +134,18 @@ def dataset_gen(data, vfeat_lens, word_dict, char_dict, max_pos_len, scope):
         result = {
                 # 'sample_id': record['sample_id'], 
                 'vid': record['vid'], 
-                's_time': record['s_time'],
-                'e_time': record['e_time'], 
+                'se_time': [record['stime'], record['etime']],
                 'duration': record['duration'], 
+                'se_frac': [sfrac, efrac], 
+                # 's_ind': int(s_ind), 
+                # 'e_ind': int(e_ind), 
+                # 'v_len': vfeat_lens[vid], 
+                'sentence': record['sentence'],
                 'words': record['words'],
-                's_ind': int(s_ind), 
-                'e_ind': int(e_ind), 
-                'v_len': vfeat_lens[vid], 
-                'w_ids': word_ids,
-                'c_ids': char_ids,
-                'bert_id':bert_id,
-                "bert_mask":bert_mask,
+                'wids': word_ids,
+                'cids': char_ids,
+                # 'bert_id':bert_id,
+                # "bert_mask":bert_mask,
                 }
         dataset.append(result)
     return dataset
@@ -176,61 +153,23 @@ def dataset_gen(data, vfeat_lens, word_dict, char_dict, max_pos_len, scope):
 
 def generate_dataset(configs, cache_path):
     vfeat_lens = get_vfeat_len(configs)
-    processor = CharadesProcessor()
-    train_data = processor.convert(configs.paths.train_path)
-    test_data = processor.convert(configs.paths.test_path)
+    train_data = process_data(configs.paths.train_path)
+    test_data = process_data(configs.paths.test_path)
     if configs.paths.val_path == '':
         data_list = [train_data, test_data]
     else:
-        val_data = processor.convert(configs.paths.val_path)
+        val_data = process_data(configs.paths.val_path)
         data_list = [train_data, val_data, test_data]
 
     # generate dataset
     word_dict, char_dict, vectors = vocab_emb_gen(data_list, configs.paths.glove_path)
-    train_set = dataset_gen(train_data, vfeat_lens, word_dict, char_dict, configs.model.vlen, 'train') # ???? active
-    test_set = dataset_gen(test_data, vfeat_lens, word_dict, char_dict, configs.model.vlen, 'test')
+    train_set = dataset_gen(train_data, vfeat_lens, word_dict, char_dict, configs.model.tlen, 'train')
+    test_set = dataset_gen(test_data, vfeat_lens, word_dict, char_dict, configs.model.tlen, 'test')
     if configs.paths.val_path == '':
         val_set = None
         n_val = 0 
     else:
-        val_set = dataset_gen(val_data, vfeat_lens, word_dict, char_dict, configs.model.vlen, 'val')
-        n_val = len(val_set)
-
-    # save dataset
-    dataset = {'train_set': train_set, 'val_set': val_set, 'test_set': test_set, 'word_dict': word_dict,
-               'char_dict': char_dict, 'word_vector': vectors, 'n_train': len(train_set), 'n_val': n_val,
-               'n_test': len(test_set), 'n_words': len(word_dict), 'n_chars': len(char_dict)}
-    save_pickle(dataset, cache_path)
-    return dataset
-
-
-
-def generate_dataset_BAN(configs, cache_path):
-    vfeat_lens = get_vfeat_len(configs)
-    # data_dir = os.path.join('data', 'dataset', configs.task + "_" + configs.suffix)
-    # load data
-    processor = CharadesProcessor()
-    # train_data, val_data, test_data = processor.convert(data_dir)
-
-    train_data = processor.convert(configs.paths.train_path)
-    test_data = processor.convert(configs.paths.test_path)
-
-    if configs.paths.val_path == '':
-        data_list = [train_data, test_data]
-    else:
-        val_data = processor.convert(configs.paths.val_path)
-        data_list = [train_data, val_data, test_data]
-
-    # generate dataset
-    word_dict, char_dict, vectors = vocab_emb_gen(data_list, configs.paths.glove_path)
-
-    train_set = dataset_gen(train_data, vfeat_lens, word_dict, char_dict, configs.model.vlen, 'train') # ???? active
-    test_set = dataset_gen(test_data, vfeat_lens, word_dict, char_dict, configs.model.vlen, 'test')
-    if configs.paths.val_path == '':
-        val_set = None
-        n_val = 0 
-    else:
-        val_set = dataset_gen(val_data, vfeat_lens, word_dict, char_dict, configs.model.vlen, 'val')
+        val_set = dataset_gen(val_data, vfeat_lens, word_dict, char_dict, configs.model.tlen, 'val')
         n_val = len(val_set)
 
     # save dataset
