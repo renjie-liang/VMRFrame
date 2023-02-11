@@ -13,23 +13,23 @@
   },
 
   "train": {
-    "epochs": 30,
-    "batch_size": 32,
-    "lr": 0.0008,
-    "warmup_proportion": 0.01,
+    "epochs": 100,
+    "batch_size": 16,
+    "lr": 0.0001,
+    "warmup_proportion": 0.00,
     "clip_norm": 1.0
   },
 
   "model": {
     "name": "SeqPAN",
-    "sample_type": "original",
+    "sample_type": "padding",
     "vlen": 64,
     "vdim": 1024,
     "dim": 128,
     "num_heads": 4,
     "word_dim": 300,
     "char_dim": 100,
-    "droprate": 0.1
+    "droprate": 0.2
   },
   "others":
   {

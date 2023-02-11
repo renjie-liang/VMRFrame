@@ -57,18 +57,34 @@ class VideoFeatureDict():
 
 
 
-def sample_vfeat_linear(v_feat, max_seq_len, sample_method):
+def sample_vfeat_linear(vfeat, max_seq_len, sample_method):
     if sample_method == "original":
-        output = v_feat
+        new_vfeat = vfeat
     elif sample_method == "fixlen":
-        output = F.interpolate(v_feat.transpose(0, 1).unsqueeze(0),
+        new_vfeat = F.interpolate(vfeat.transpose(0, 1).unsqueeze(0),
                         size=max_seq_len, 
                         mode='linear',
                         align_corners=False)
-        output = output[0, ...].transpose(0, 1)
+        new_vfeat = new_vfeat[0, ...].transpose(0, 1)
     elif sample_method == "padding":
+        num_clips = vfeat.shape[0]
+        if num_clips <= max_seq_len:
+            new_vfeat = vfeat
+        else:
+            idxs = torch.arange(0, max_seq_len + 1, 1.0) / max_seq_len * num_clips
+            idxs = torch.round(idxs).int()
+            idxs[idxs > num_clips - 1] = num_clips - 1
+            new_vfeat = []
+            for i in range(max_seq_len):
+                s_idx, e_idx = idxs[i], idxs[i + 1]
+                if s_idx < e_idx:
+                    new_vfeat.append(torch.mean(vfeat[s_idx:e_idx], axis=0))
+                else:
+                    new_vfeat.append(vfeat[s_idx])
+            new_vfeat = torch.stack(new_vfeat)
+    else:
         raise
-    return output
+    return new_vfeat
 
 def pad_seq(sequences, pad_tok=None, max_length=None):
     if pad_tok is None:
@@ -107,8 +123,8 @@ def pad_video_seq(sequences, max_length=None):
         add_length = max_length - seq.shape[0]
         sequence_length.append(seq.shape[0])
         if add_length > 0:
-            add_feature = np.zeros(shape=[add_length, feature_length], dtype=np.float32)
-            seq_ = np.concatenate([seq, add_feature], axis=0)
+            add_feature = torch.zeros(size=[add_length, feature_length], dtype=seq.dtype)
+            seq_ = torch.cat([seq, add_feature], axis=0)
         else:
             seq_ = seq
         sequence_padded.append(seq_)

@@ -97,7 +97,7 @@ if not args.eval:
 
             infer_fun = eval("infer_" + configs.model.name)
             props_frac = infer_fun(output, configs)
-            ious = append_ious(ious,  records["se_fracs"], props_frac)
+            ious = append_ious(ious,  inputbatch["se_fracs"], props_frac)
             # ious = append_ious(ious, records, props_frac)
         r1i3, r1i5, r1i5, r1i7, mi = get_i345_mi(ious)
         logger.info("TRAIN|\tR1I3: {:.2f}\tR1I5: {:.2f}\tR1I7: {:.2f}\tmIoU: {:.2f}\tloss:{:.4f}".format(r1i3, r1i5, r1i7, mi, lossmeter.avg))
@@ -115,7 +115,7 @@ if not args.eval:
             tbar.set_description("TEST  {:2d}|{:2d} LOSS:{:.6f}".format(epoch + 1, configs.train.epochs, lossmeter.avg))
             infer_fun = eval("infer_" + configs.model.name)
             props_frac = infer_fun(output, configs)
-            ious = append_ious(ious, records["se_fracs"], props_frac)
+            ious = append_ious(ious, inputbatch["se_fracs"], props_frac)
             # ious = append_ious(ious, records, props_frac)
         r1i3, r1i5, r1i5, r1i7, mi = get_i345_mi(ious)
         save_name = os.path.join(ckpt_dir, "best_{}.pkl".format(configs.model.name))

@@ -20,7 +20,7 @@ class SeqPAN(nn.Module):
                                        char_dim=configs.model.char_dim, 
                                        word_vectors=word_vectors,
                                        droprate=droprate)
-        self.tfeat_encoder = FeatureEncoder(dim=dim, kernel_size=7, num_layers=4, max_pos_len=max_pos_len, droprate=droprate)
+        # self.tfeat_encoder = FeatureEncoder(dim=dim, kernel_size=7, num_layers=4, max_pos_len=max_pos_len, droprate=droprate)
                                        
         self.video_affine = VisualProjection(visual_dim=configs.model.vdim, dim=dim,
                                              droprate=droprate)
@@ -32,7 +32,6 @@ class SeqPAN(nn.Module):
                                                         droprate=droprate, use_bias=True, activation=None)
         self.dual_attention_block_2 = DualAttentionBlock(configs=configs, dim=dim, num_heads=configs.model.num_heads, 
                                                     droprate=droprate, use_bias=True, activation=None)
-
 
 
         self.q2v_attn = CQAttention(dim=dim, droprate=droprate)
@@ -47,15 +46,14 @@ class SeqPAN(nn.Module):
         self.predictor = SeqPANPredictor(configs)
 
 
-
     def forward(self, word_ids, char_ids, vfeat_in, vmask, tmask):
         B = vmask.shape[0]
 
-        tfeat = self.text_encoder(word_ids, char_ids)
         vfeat = self.video_affine(vfeat_in)
+        tfeat = self.text_encoder(word_ids, char_ids)
 
         vfeat = self.vfeat_encoder(vfeat)
-        tfeat = self.tfeat_encoder(tfeat)
+        tfeat = self.vfeat_encoder(tfeat)
 
 
         vfeat_ = self.dual_attention_block_1(vfeat, tfeat, vmask, tmask)
@@ -65,7 +63,6 @@ class SeqPAN(nn.Module):
         vfeat_ = self.dual_attention_block_2(vfeat, tfeat, vmask, tmask)
         tfeat_ = self.dual_attention_block_2(tfeat, vfeat, tmask, vmask)
         vfeat, tfeat = vfeat_, tfeat_
-
 
         t2v_feat = self.q2v_attn(vfeat, tfeat, vmask, tmask)
         v2t_feat = self.v2q_attn(tfeat, vfeat, tmask, vmask)
@@ -90,7 +87,6 @@ class SeqPAN(nn.Module):
 def collate_fn_SeqPAN(datas):
     from utils.data_utils import pad_seq, pad_char_seq, pad_video_seq
     from utils.utils import convert_length_to_mask
-
 
     records, se_times, se_fracs = [], [], []
     vfeats, words_ids, chars_ids = [], [], []
@@ -160,7 +156,7 @@ def train_engine_SeqPAN(model, data, configs):
     loc_loss = lossfun_loc(slogits, elogits, label1ds[:, 0, :], label1ds[:, 1, :], data['vmasks'])
     m_loss = lossfun_match(output["match_score"], output["label_embs"],  data["NER_labels"],  data['vmasks'])
 
-    loss =loc_loss #+ m_loss
+    loss =loc_loss + m_loss
     return loss, output
 
 
