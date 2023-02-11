@@ -13,16 +13,17 @@ def mask_logits(inputs, mask, mask_value=-1e30):
 
 
 class Conv1D(nn.Module):
-    def __init__(self, in_dim, out_dim, kernel_size=1, stride=1, padding=0, bias=True):
+    def __init__(self, in_dim, out_dim, kernel_size=1, stride=1, padding=0, bias=True, activation=None):
         super(Conv1D, self).__init__()
         self.conv1d = nn.Conv1d(in_channels=in_dim, out_channels=out_dim, kernel_size=kernel_size, padding=padding,
                                 stride=stride, bias=bias)
+        self.activation = activation
 
     def forward(self, x):
         # suppose all the input with shape (batch_size, seq_len, dim)
         x = x.transpose(1, 2)  # (batch_size, dim, seq_len)
         x = self.conv1d(x)
-        return x.transpose(1, 2)  # (batch_size, seq_len, dim)
+        return x.transpose(1, 2) if self.activation is None else self.activation(x).transpose(1, 2)# (batch_size, seq_len, dim)
 
 class WordEmbedding(nn.Module):
     def __init__(self, num_words, word_dim, droprate, word_vectors=None):
@@ -110,8 +111,8 @@ class VisualProjection(nn.Module):
     def __init__(self, visual_dim, dim, droprate=0.0):
         super(VisualProjection, self).__init__()
         self.drop = nn.Dropout(p=droprate)
-        # self.video_conv1d = Conv1D(in_dim=visual_dim, out_dim=dim, kernel_size=1, stride=1, bias=True, padding=0)
-        self.video_conv1d = nn.Linear(visual_dim, dim)
+        self.video_conv1d = Conv1D(in_dim=visual_dim, out_dim=dim, kernel_size=1, stride=1, bias=True, padding=0)
+        # self.video_conv1d = nn.Linear(visual_dim, dim)
         self.v_layer_norm = nn.LayerNorm(dim, eps=1e-6)
         
     def forward(self, visual_features):
@@ -280,6 +281,7 @@ class DualAttentionBlock(nn.Module):
     def forward(self, from_tensor, to_tensor,  from_mask, to_mask):
         outputs = self.layer_norm_1(from_tensor)
         to_tensor = self.layer_norm_t(to_tensor)
+        outputs = self.dropout(outputs)
         outputs = self.dual_multihead_attention(from_tensor=outputs, to_tensor=to_tensor, 
                                                 from_mask=from_mask, to_mask=to_mask)
 

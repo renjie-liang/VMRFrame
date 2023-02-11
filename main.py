@@ -51,7 +51,7 @@ configs.num_chars = dataset['n_chars']
 configs.num_words = dataset['n_words']
 
 # get train and test loader
-visual_features = VideoFeatureDict(configs.paths.feature_path, configs.model.vlen, args.debug)
+visual_features = VideoFeatureDict(configs.paths.feature_path, configs.model.vlen, args.debug, configs.model.sample_type)
 train_loader = get_loader(dataset['train_set'], visual_features, configs, loadertype="train")
 test_loader = get_loader(dataset['test_set'], visual_features, configs, loadertype="test")
 # train_nosuffle_loader = get_loader(dataset=dataset['train_set'], video_features=visual_features, configs=configs, loadertype="test")
@@ -82,9 +82,9 @@ if not args.eval:
         lossmeter.reset()
         tbar, ious = tqdm(train_loader), []
         for data in tbar:
-            records, _ = data
+            inputbatch, records = data
             train_engine = eval("train_engine_" + configs.model.name)
-            loss, output = train_engine(model, records, configs)
+            loss, output = train_engine(model, inputbatch, configs)
 
             lossmeter.update(loss.item())
             tbar.set_description("TRAIN {:2d}|{:2d} LOSS:{:.6f}".format(epoch + 1, configs.train.epochs, lossmeter.avg))
@@ -97,7 +97,7 @@ if not args.eval:
 
             infer_fun = eval("infer_" + configs.model.name)
             props_frac = infer_fun(output, configs)
-            ious = append_ious(ious,  records["se_fracs"], props_frac)
+            ious = append_ious(ious,  inputbatch["se_fracs"], props_frac)
             # ious = append_ious(ious, records, props_frac)
         r1i3, r1i5, r1i5, r1i7, mi = get_i345_mi(ious)
         logger.info("TRAIN|\tR1I3: {:.2f}\tR1I5: {:.2f}\tR1I7: {:.2f}\tmIoU: {:.2f}\tloss:{:.4f}".format(r1i3, r1i5, r1i7, mi, lossmeter.avg))
@@ -108,14 +108,14 @@ if not args.eval:
         ious, ious_my = [], []
 
         for data in tbar:
-            records, _ = data
+            inputbatch, records = data
             train_engine = eval("train_engine_" + configs.model.name)
-            loss, output = train_engine(model, records, configs)
+            loss, output = train_engine(model, inputbatch, configs)
             lossmeter.update(loss.item())
             tbar.set_description("TEST  {:2d}|{:2d} LOSS:{:.6f}".format(epoch + 1, configs.train.epochs, lossmeter.avg))
             infer_fun = eval("infer_" + configs.model.name)
             props_frac = infer_fun(output, configs)
-            ious = append_ious(ious, records["se_fracs"], props_frac)
+            ious = append_ious(ious, inputbatch["se_fracs"], props_frac)
             # ious = append_ious(ious, records, props_frac)
         r1i3, r1i5, r1i5, r1i7, mi = get_i345_mi(ious)
         save_name = os.path.join(ckpt_dir, "best_{}.pkl".format(configs.model.name))

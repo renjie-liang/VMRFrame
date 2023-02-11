@@ -24,14 +24,15 @@ import numpy as np
 def lossfun_match(m_probs, label_embs, m_labels, vmask):
     # NLLLoss
     # loss_fun = nn.NLLLoss()
-    loss_fun = nn.CrossEntropyLoss()
+    # loss_fun = nn.CrossEntropyLoss()
     m_labels = F.one_hot(m_labels).float()
-    m_loss = loss_fun(m_probs, m_labels)
+    # m_loss = loss_fun(m_probs, m_labels)
     # m_loss = loss_fun(m_probs.transpose(1,2), m_labels)
 
     loss_per_sample = -torch.sum(m_labels * m_probs, dim=-1)
-    m_loss =torch.sum(loss_per_sample * vmask, dim=-1) / (torch.sum(vmask, dim=-1) + 1e-12)
-    m_loss = m_loss.mean()
+    # m_loss =torch.sum(loss_per_sample * vmask, dim=-1) / (torch.sum(vmask, dim=-1) + 1e-12)
+    # m_loss = m_loss.mean()
+    m_loss =torch.sum(loss_per_sample * vmask) / (torch.sum(vmask) + 1e-12)
     
     # add punishment
     ortho_constraint = torch.matmul(label_embs.T, label_embs) * (1.0 - torch.eye(4, device=label_embs.device, dtype=torch.float32))
@@ -43,9 +44,13 @@ def lossfun_loc(start_logits, end_logits, s_labels, e_labels, vmask):
     # start_logits = mask_logits(start_logits, vmask)
     # end_logits = mask_logits(end_logits, vmask)
 
-    start_losses = F.cross_entropy(start_logits, s_labels)
-    end_losses = F.cross_entropy(end_logits, e_labels)
-    loss = (start_losses + end_losses).mean()
+    # start_losses = F.cross_entropy(start_logits, s_labels)
+    # end_losses = F.cross_entropy(end_logits, e_labels)
+    # loss = (sloss + eloss).mean()
+
+    sloss = nn.CrossEntropyLoss(reduction='mean')(start_logits, s_labels)
+    eloss = nn.CrossEntropyLoss(reduction='mean')(end_logits, e_labels)
+    loss = sloss + eloss
     return loss
 
 

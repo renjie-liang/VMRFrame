@@ -23,6 +23,7 @@
 
   "model": {
     "name": "BaseFast",
+    "sample_type": "fixlen",
     "vlen": 64,
     "vdim": 1024,
     "dim": 128,
