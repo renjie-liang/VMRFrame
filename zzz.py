@@ -1,47 +1,24 @@
-import  matplotlib.pyplot as plt
-a = label1d_model1s[:,0,0].cpu().detach()
-# plt.matshow(a)
-plt.plot(a)
-plt.savefig("./figures/s_label1d.png")
+import torch
+from models.ActionFormerlib.meta_archs import ConvTransformerBackbone
+backbone = ConvTransformerBackbone(
+                **{
+                    'n_in' : 512,
+                    'n_embd' : 256,
+                    'n_head': 4,
+                    'n_embd_ks': 3,
+                    'max_len': 192,
+                    'arch' : [2, 2, 5],
+                    'mha_win_size': [7, 7, 7, 7, 7, -1],
+                    'scale_factor' : 2,
+                    'with_ln' : True,
+                    'attn_pdrop' : 0.0,
+                    'proj_pdrop' : 0.0,
+                    'path_pdrop' : 0.1,
+                    'use_abs_pe' : True,
+                    'use_rel_pe' : False
+                }
+            )
 
-import  matplotlib.pyplot as plt
-plt.cla()
-a = label1ds[0, 0, :].cpu().detach()
-plt.plot(a)
-plt.savefig("./figures/label1d_s.png")
-plt.cla()
-a = label1ds[0, 1, :].cpu().detach()
-plt.plot(a)
-plt.savefig("./figures/label1d_e.png")
-
-
-plt.cla()
-a = label1d_model1s[0, 0, :].cpu().detach()
-plt.plot(a)
-plt.savefig("./figures/label1d_SeqPAN_s.png")
-plt.cla()
-a = label1d_model1s[0, 1, :].cpu().detach()
-plt.plot(a)
-plt.savefig("./figures/label1d_SeqPAN_e.png")
-
-
-
-import  matplotlib.pyplot as plt
-a = labels2d[0].cpu().detach()
-plt.matshow(a)
-plt.savefig("./figures/labels2d.png")
-
-import  matplotlib.pyplot as plt
-plt.cla()
-a = scores2d[0].cpu().detach()
-plt.matshow(a)
-plt.savefig("./figures/scores2d.png")
-
-
-
-import  matplotlib.pyplot as plt
-a = iou2d.cpu()
-plt.matshow(a)
-plt.savefig("./figures/label2d.png")
-
-
+batched_inputs = torch.rand([2, 512, 192])
+batched_masks = torch.ones([2, 1, 192], dtype=bool)
+res = backbone(batched_inputs, batched_masks)

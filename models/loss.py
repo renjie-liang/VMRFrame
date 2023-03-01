@@ -176,3 +176,24 @@ def lossfun_loc2d(scores2d, labels2d, mask2d):
         labels2d.masked_select(mask2d)
     )
     return loss_loc2d
+
+def lossfun_softloc(slogits, elogits, s_labels, e_labels, vmask, temperature):
+    from models.layers import mask_logits
+    slogits = mask_logits(slogits, vmask)
+    elogits = mask_logits(elogits, vmask)
+    s_labels = mask_logits(s_labels, vmask)
+    e_labels = mask_logits(e_labels, vmask)
+    
+    slogits = F.softmax(F.normalize(slogits, p=2, dim=1) / temperature, dim=-1) 
+    elogits = F.softmax(F.normalize(elogits, p=2, dim=1) / temperature, dim=-1) 
+    s_labels = F.softmax(F.normalize(s_labels, p=2, dim=1) / temperature, dim=-1) 
+    e_labels = F.softmax(F.normalize(e_labels, p=2, dim=1) / temperature, dim=-1) 
+
+
+    # sloss = F.cross_entropy(slogits, s_labels, reduce="batchmean")
+    # eloss = F.cross_entropy(elogits, e_labels, reduce="batchmean")
+
+    sloss = F.kl_div(slogits.log(), s_labels, reduction='sum')
+    eloss = F.kl_div(elogits.log(), e_labels, reduction='sum')
+
+    return sloss + eloss

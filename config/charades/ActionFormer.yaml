@@ -1,0 +1,107 @@
+{
+    "task" : "charades",
+    "paths": {
+        "ckpt_dir": "./ckpt",
+        "cache_dir" : "./data_pkl/",
+
+        "feature_path": "/storage_fast/rjliang/charades/i3d",
+        "glove_path": "/storage_fast/rjliang/glove/glove.840B.300d.txt",
+        "train_path": "data/charades_gt/train.json",
+        "test_path": "data/charades_gt/test.json",
+        "val_path": ""
+    },
+
+    "train": {
+        "epochs": 30,
+        "batch_size": 32,
+        "lr": 0.0008,
+        "warmup_proportion": 0.00,
+        "clip_norm": 1.0
+    },
+    "dataprocess":{
+        "video_augmentation": {
+                                "unchanged": None
+                                # "erosion":    0.05,
+                                # "dilation":    0.05,
+                              },
+        "sample_type": "original",
+        "label_threshold": 0.01,
+        default_fps: 30,
+        force_upsampling: True,
+        feat_stride: 16,
+        downsample_rate: 1,
+        num_frames: 16,
+        
+        
+    },
+    "model": {
+        "name": "ActionFormer",
+        "vlen": 192,
+        "tlen": 40,
+        "vdim": 1024,
+        "dim": 128,
+        "num_heads": 4,
+        "word_dim": 300,
+        "char_dim": 100,
+        "droprate": 0.1
+    },
+
+  "actionformer":
+  {
+    "backbone_type": "convTransformer",
+    "fpn_type": "identity",
+    "backbone_arch": [2, 2, 5],
+    "scale_factor": 2,
+    "regression_range": [[0, 4], [4, 8], [8, 16], [16, 32], [32, 64], [64, 10000]],
+    "n_head": 4,
+    "n_mha_win_size": -1,
+    "embd_kernel_size": 3,
+    "embd_dim": 512,
+    "embd_with_ln": true,
+    "fpn_dim": 512,
+    "fpn_with_ln": true,
+    "fpn_start_level": 0,
+    "head_dim": 512,
+    "head_kernel_size": 3,
+    "head_num_layers": 3,
+    "head_with_ln": true,
+    "max_buffer_len_factor": 6.0,
+    "use_abs_pe": false,
+    "use_rel_pe": false,
+    'input_dim': 1024,
+    'max_seq_len': 192, 
+    'num_classes': 1,
+    'train_cfg': {
+        "init_loss_norm": 200,
+        "clip_grad_l2norm": 1.0,
+        "cls_prior_prob": 0.01,
+        "center_sample": radius,
+        "center_sample_radius": 1.5,
+        "label_smoothing": 0.1,
+        "droppath": 0.1,
+        "loss_weight": 2.0,
+        'dropout': 0.0,
+        'droppath': 0.1,
+        'label_smoothing': 0.1,
+        'loss_weight': 2.0,
+        'head_empty_cls': []
+      },
+      "test_cfg": {
+        "voting_thresh": 0.9,
+        "pre_nms_topk": 2000,
+        "max_seg_num": 100,
+        "min_score": 0.001,
+        "multiclass_nms": false,
+        "nms_sigma" : 0.75,
+        "duration_thresh": 0.001,
+        'pre_nms_thresh': 0.001,
+        'pre_nms_topk': 2000,
+        'voting_thresh': 0.9,
+
+        "iou_threshold": 0.1,
+        "nms_method": 'soft', # soft | hard | none
+        "ext_score_file": None,
+      }
+  }
+
+}

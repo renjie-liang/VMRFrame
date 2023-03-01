@@ -29,6 +29,11 @@ def load_json(filename):
     with open(filename, encoding='utf8') as fr:
         return json.load(fr)
 
+def save_json(data, filename):
+    with open(filename, "w", encoding='utf8') as fr:
+        json.dump(data, fr)
+
+
 def load_yaml(filename):
     with open(filename, encoding='utf8') as fr:
         return yaml.safe_load(fr)
@@ -53,6 +58,16 @@ def time_idx(t, duration, vlen):
         return res
     else:
         return round(t / duration * (vlen - 1))
+
+def frac_idx(frac, vlen):
+    if isinstance(frac, list):
+        res = []
+        for i in frac:
+            res.append(frac_idx(i, vlen))
+        return res
+    else:
+        return round(frac * (vlen - 1))
+
 
 def idx_time(t, duration, vlen):
     if isinstance(t, list):

@@ -12,7 +12,7 @@ from models.loss import append_ious, get_i345_mi
 from utils.data_gen import load_dataset
 from utils.data_utils import VideoFeatureDict
 from utils.utils import load_json, load_yaml, set_seed_config, build_optimizer_and_scheduler, plot_labels, AverageMeter, get_logger, save_best_model
-from utils.data_loader import get_loader
+from utils.DataLoader import get_loader
 from models import *
 import yaml
 
@@ -51,7 +51,10 @@ configs.num_chars = dataset['n_chars']
 configs.num_words = dataset['n_words']
 
 # get train and test loader
-visual_features = VideoFeatureDict(configs.paths.feature_path, configs.model.vlen, args.debug, configs.model.sample_type)
+visual_features = VideoFeatureDict(configs.paths.feature_path, configs.model.vlen, args.debug)
+
+
+
 train_loader = get_loader(dataset['train_set'], visual_features, configs, loadertype="train")
 test_loader = get_loader(dataset['test_set'], visual_features, configs, loadertype="test")
 # train_nosuffle_loader = get_loader(dataset=dataset['train_set'], video_features=visual_features, configs=configs, loadertype="test")
@@ -63,28 +66,26 @@ device = ("cuda" if torch.cuda.is_available() else "cpu" )
 configs.device = device
 
 # init logger and meter
-logger = get_logger(ckpt_dir, "eval")
+logger = get_logger(ckpt_dir, configs.model.name)
 logger.info(args)
 logger.info(configs)
 lossmeter = AverageMeter()
 
-# glove_emb_path = '/storage/rjliang/1_WeakVMR/BAN-APR/Charades_STA/data/caption/charasdes_sta_captions_glove_embeds.npy'
-# glove_emb = np.load(open(glove_emb_path, 'rb'))
 # train and test
 if not args.eval:
     # build model
-    # model = build_load_model(configs, args, glove_emb) 
     model = build_load_model(configs, args, dataset['word_vector'])
     optimizer, scheduler = build_optimizer_and_scheduler(model, configs=configs)
     best_r1i7, global_step, mi_val_best = -1.0, 0, 0
     for epoch in range(configs.train.epochs):
+        totle_time = 0
         model.train()
         lossmeter.reset()
         tbar, ious = tqdm(train_loader), []
         for data in tbar:
             inputbatch, records = data
             train_engine = eval("train_engine_" + configs.model.name)
-            loss, output = train_engine(model, inputbatch, configs)
+            loss, output = train_engine(model, inputbatch, configs, "train")
 
             lossmeter.update(loss.item())
             tbar.set_description("TRAIN {:2d}|{:2d} LOSS:{:.6f}".format(epoch + 1, configs.train.epochs, lossmeter.avg))
@@ -98,33 +99,43 @@ if not args.eval:
             infer_fun = eval("infer_" + configs.model.name)
             props_frac = infer_fun(output, configs)
             ious = append_ious(ious,  inputbatch["se_fracs"], props_frac)
+            totle_time += output["consume_time"]
+
             # ious = append_ious(ious, records, props_frac)
         r1i3, r1i5, r1i5, r1i7, mi = get_i345_mi(ious)
         logger.info("TRAIN|\tR1I3: {:.2f}\tR1I5: {:.2f}\tR1I7: {:.2f}\tmIoU: {:.2f}\tloss:{:.4f}".format(r1i3, r1i5, r1i7, mi, lossmeter.avg))
+        
+        batch_time = totle_time / len(tbar)
+        sample_time = totle_time / len(dataset['train_set'])
+        logger.info("TRAIN|\tTotal: {:.4f}\tBatch: {:.6f}\tSample: {:.6f}\tBatchSize: {}".format(totle_time, batch_time, sample_time, configs.train.batch_size))
 
         model.eval()
         lossmeter.reset()
         tbar = tqdm(test_loader)
         ious, ious_my = [], []
-
+        totle_time = 0
         for data in tbar:
             inputbatch, records = data
             train_engine = eval("train_engine_" + configs.model.name)
-            loss, output = train_engine(model, inputbatch, configs)
+            loss, output = train_engine(model, inputbatch, configs, "test")
             lossmeter.update(loss.item())
             tbar.set_description("TEST  {:2d}|{:2d} LOSS:{:.6f}".format(epoch + 1, configs.train.epochs, lossmeter.avg))
             infer_fun = eval("infer_" + configs.model.name)
             props_frac = infer_fun(output, configs)
             ious = append_ious(ious, inputbatch["se_fracs"], props_frac)
             # ious = append_ious(ious, records, props_frac)
+            totle_time += output["consume_time"]
         r1i3, r1i5, r1i5, r1i7, mi = get_i345_mi(ious)
         save_name = os.path.join(ckpt_dir, "best_{}.pkl".format(configs.model.name))
         save_best_model(mi, model, save_name)
         logger.info("TEST |\tR1I3: {:.2f}\tR1I5: {:.2f}\tR1I7: {:.2f}\tmIoU: {:.2f}\tloss:{:.4f}".format(r1i3, r1i5, r1i7, mi, lossmeter.avg))
+        batch_time = totle_time / len(tbar)
+        sample_time = totle_time / len(dataset['test_set'])
+        logger.info("TEST|\tTotal: {:.4f}\tBatch: {:.6f}\tSample: {:.6f}\tBatchSize: {}".format(totle_time, batch_time, sample_time, configs.train.batch_size))
+
         logger.info("")
 
 if args.eval:
-    # model = build_load_model(configs, args, glove_emb)
     model = build_load_model(configs, args, dataset['word_vector'])
     model.eval()
     lossmeter.reset()
@@ -132,7 +143,7 @@ if args.eval:
     for data in tbar:
         records, _ = data
         train_engine = eval("train_engine_" + configs.model.name)
-        loss, output = train_engine(model, records, configs)
+        loss, output = train_engine(model, records, configs, "test")
         lossmeter.update(loss.item())
         infer_fun = eval("infer_" + configs.model.name)
         props_frac = infer_fun(output, configs)
