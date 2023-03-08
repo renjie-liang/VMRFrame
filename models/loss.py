@@ -192,8 +192,8 @@ def lossfun_softloc(slogits, elogits, s_labels, e_labels, vmask, temperature):
 
     # sloss = F.cross_entropy(slogits, s_labels, reduce="batchmean")
     # eloss = F.cross_entropy(elogits, e_labels, reduce="batchmean")
-
-    sloss = F.kl_div(slogits.log(), s_labels, reduction='sum')
-    eloss = F.kl_div(elogits.log(), e_labels, reduction='sum')
+     
+    sloss = torch.sum(F.kl_div(slogits.log(), s_labels, reduction='none'), dim=1)
+    eloss = torch.sum(F.kl_div(elogits.log(), e_labels, reduction='none'), dim=1)
 
     return sloss + eloss

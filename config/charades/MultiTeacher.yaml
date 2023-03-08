@@ -10,7 +10,7 @@
         "val_path": ""
     },
   "train": {
-    "epochs": 50,
+    "epochs": 100,
     "batch_size": 128,
     "lr": 0.0008,
     "warmup_proportion": 0.05,
@@ -38,10 +38,13 @@
     },
     "loss":
     {   t0_path: "./results/charades_BAN_train_logits.pkl",
-        t0_cof: 0.0,
+        t0_cof: 1.0,
         t0_emperature: 3,
         t1_path: "./results/charades_EMAT_train_logits.pkl",
         t1_cof: 1.0,
-        t1_emperature: 3
+        t1_emperature: 3,
+        t2_path: "./results/charades_SeqPAN_train_logits.pkl",
+        t2_cof: 0.0,
+        t2_emperature: 3
     }
 }

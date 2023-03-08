@@ -38,7 +38,6 @@ def load_yaml(filename):
     with open(filename, encoding='utf8') as fr:
         return yaml.safe_load(fr)
 
-
 def load_pickle(filename):
     with open(filename, mode='rb') as handle:
         data = pickle.load(handle)
@@ -47,8 +46,6 @@ def load_pickle(filename):
 def save_pickle(data, filename):
     with open(filename, mode='wb') as handle:
         pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
-
-
 
 def time_idx(t, duration, vlen):
     if isinstance(t, list):
@@ -87,7 +84,6 @@ def set_seed_config(seed):
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
 
-
 def build_optimizer_and_scheduler(model, configs):
     from transformers import get_linear_schedule_with_warmup
     no_decay = ['bias', 'layer_norm', 'LayerNorm']  # no decay for parameters of layer norm and bias
@@ -105,8 +101,8 @@ def build_optimizer_and_scheduler(model, configs):
 def move_to_cuda(sample):
     def _move_to_cuda(tensor):
         return tensor.cuda()
-
     return apply_to_sample(_move_to_cuda, sample)
+
 def apply_to_sample(f, sample):
     if len(sample) == 0:
         return {}
@@ -126,15 +122,12 @@ def apply_to_sample(f, sample):
 
     return _apply(sample)
 
-
-
 def convert_length_to_mask(lengths, max_len):
     # lengths = torch.from_numpy(lengths)
     # max_len = lengths.max().item()
     mask = torch.arange(max_len).expand(lengths.size()[0], max_len) < lengths.unsqueeze(1)
     mask = mask.float()
     return mask
-
 
 def plot_labels(s_labels, e_labels, m_labels, label_type):
     from matplotlib import pyplot as plt
@@ -168,11 +161,20 @@ def plot_labels(s_labels, e_labels, m_labels, label_type):
 def calculate_iou(i0, i1):
     union = (min(i0[0], i1[0]), max(i0[1], i1[1]))
     inter = (max(i0[0], i1[0]), min(i0[1], i1[1]))
-
     if (union[1] - union[0]) == 0.0:
         return 0.0
     iou = 1.0 * (inter[1] - inter[0]) / (union[1] - union[0])
     return max(0.0, iou)
+
+def iou_batch(i0, i1):
+    s = torch.stack([i0[0,:], i1[0,:]])
+    e = torch.stack([i0[1,:], i1[1,:]])
+    union = torch.stack([torch.min(s, dim=0)[0], torch.max(e, dim=0)[0]])
+    inter = torch.stack([torch.max(s, dim=0)[0], torch.min(e, dim=0)[0]])
+
+    iou = (inter[1,:] - inter[0,:]) / (union[1,:] - union[0,:])
+    iou = torch.clamp(iou, min=0.0, max=1.0)
+    return iou
 
 def calculate_iou_accuracy(ious, threshold):
     total_size = float(len(ious))
@@ -181,9 +183,6 @@ def calculate_iou_accuracy(ious, threshold):
         if iou >= threshold:
             count += 1
     return float(count) / total_size * 100.0
-
-
-
 
 def get_logger(dir, tile):
     os.makedirs(dir, exist_ok=True)
@@ -213,10 +212,7 @@ def save_best_model(score, model, save_name):
         best_score = score
         torch.save(model.state_dict(), save_name)
         print("***save best checkpoint to {}, mIoU={:.2f}**".format(save_name, score))
-
-
-
-
+    return best_score
 import math
 def get_gaussian_weight(center, vlen, L, alpha):
     x = np.linspace(-1, 1, num=L,  dtype=np.float32)

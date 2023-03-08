@@ -127,13 +127,13 @@ if not args.eval:
             totle_time += output["consume_time"]
         r1i3, r1i5, r1i5, r1i7, mi = get_i345_mi(ious)
         save_name = os.path.join(ckpt_dir, "best_{}.pkl".format(configs.model.name))
-        save_best_model(mi, model, save_name)
+        best_mi = save_best_model(mi, model, save_name)
         logger.info("TEST |\tR1I3: {:.2f}\tR1I5: {:.2f}\tR1I7: {:.2f}\tmIoU: {:.2f}\tloss:{:.4f}".format(r1i3, r1i5, r1i7, mi, lossmeter.avg))
         batch_time = totle_time / len(tbar)
         sample_time = totle_time / len(dataset['test_set'])
         logger.info("TEST|\tTotal: {:.4f}\tBatch: {:.6f}\tSample: {:.6f}\tBatchSize: {}".format(totle_time, batch_time, sample_time, configs.train.batch_size))
-
         logger.info("")
+    logger.info("best mIoU: {:.2f}".format(best_mi))
 
 if args.eval:
     model = build_load_model(configs, args, dataset['word_vector'])
