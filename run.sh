@@ -42,4 +42,9 @@ CUDA_VISIBLE_DEVICES=2 python main.py --config ./config/charades/ActionFormer.ya
 
 CUDA_VISIBLE_DEVICES=2 python main.py --config ./config/charades/SeqPAN_SimilarSentence.yaml --debug
 CUDA_VISIBLE_DEVICES=2 python main.py --config ./config/charades/BackBoneBertSentence.yaml --debug
+CUDA_VISIBLE_DEVICES=2 python main.py --config ./config/charades/BackBoneAlignFeature.yaml --debug
+CUDA_VISIBLE_DEVICES=3 python main.py --config ./config/charades/BackBoneActionFormer.yaml --debug
 
+
+
+CUDA_VISIBLE_DEVICES=2 python main.py --config ./config/charades/MultiTeacher.yaml
