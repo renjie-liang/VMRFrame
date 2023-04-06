@@ -113,11 +113,12 @@ def train_engine_BackBoneAlignFeature(model, data, configs, runmode):
     elogits = output["elogits"]
     label1ds =  data['label1ds']
     loc_loss = lossfun_loc(slogits, elogits, label1ds[:, 0, :], label1ds[:, 1, :], data['vmasks'])
-    alg_loss = F.l1_loss(output["tfeatalg"], data["sentence_embeddings"]) \
-             + F.l1_loss(output["vfeatalg"], data["sentence_embeddings"]) \
-             + F.l1_loss(output["tfeatalg"], output["vfeatalg"])
+    # alg_loss = F.l1_loss(output["tfeatalg"], data["sentence_embeddings"]) \
+    #          + F.l1_loss(output["vfeatalg"], data["sentence_embeddings"]) \
+    #          + F.l1_loss(output["tfeatalg"], output["vfeatalg"])
+
     
-        
+    alg_loss =  F.l1_loss(output["vfeatalg"], data["sentence_embeddings"]) 
     loss =loc_loss + alg_loss
     return loss, output
 

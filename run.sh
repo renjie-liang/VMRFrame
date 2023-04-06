@@ -33,8 +33,8 @@ CUDA_VISIBLE_DEVICES=2 python main.py --config ./config/anet/BaseFast_c3d.yaml -
 CUDA_VISIBLE_DEVICES=3 python main.py --config ./config/anet/BaseFast_CCA_PreTrain_c3d.yaml --debug
 
 
-CUDA_VISIBLE_DEVICES=2 python main.py --config ./config/charades/BackBone.yaml --debug
-CUDA_VISIBLE_DEVICES=2 python main.py --config ./config/charades/SeqPAN.yaml --debug
+CUDA_VISIBLE_DEVICES=0 python main.py --config ./config/charades/BackBone.yaml --debug
+CUDA_VISIBLE_DEVICES=0 python main.py --config ./config/charades/SeqPAN.yaml --debug
 CUDA_VISIBLE_DEVICES=2 python main.py --config ./config/charades/OneTeacher.yaml --debug
 CUDA_VISIBLE_DEVICES=2 python main.py --config ./config/charades/MultiTeacher.yaml --debug
 CUDA_VISIBLE_DEVICES=2 python main.py --config ./config/charades/ActionFormer.yaml --debug
@@ -47,4 +47,4 @@ CUDA_VISIBLE_DEVICES=3 python main.py --config ./config/charades/BackBoneActionF
 
 
 
-CUDA_VISIBLE_DEVICES=2 python main.py --config ./config/charades/MultiTeacher.yaml
+CUDA_VISIBLE_DEVICES=0 python main.py --config ./config/charades/MultiTeacher.yaml

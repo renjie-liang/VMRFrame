@@ -178,17 +178,17 @@ def train_engine_MultiTeacher(model, data, configs, runtype):
     # t0
     if runtype == "train":
         label1d_t0s = data['label1d_t0s']
-        loss_student_t0 = lossfun_softloc(slogits, elogits, label1d_t0s[:, 0, :], label1d_t0s[:, 1, :], vmasks, configs.loss.t0_emperature)
+        loss_student_t0 = lossfun_softloc(slogits, elogits, label1d_t0s[:, 0, :], label1d_t0s[:, 1, :], vmasks, configs.loss.t0_temperature)
         loss_student_t0 = torch.mean(calculate_adapt_cof(label1d_t0s, label1ds) * loss_student_t0)
         loss += loss_student_t0 * configs.loss.t0_cof
 
         label1d_t1s = data['label1d_t1s']
-        loss_student_t1 = lossfun_softloc(slogits, elogits, label1d_t1s[:, 0, :], label1d_t1s[:, 1, :], vmasks, configs.loss.t1_emperature)
+        loss_student_t1 = lossfun_softloc(slogits, elogits, label1d_t1s[:, 0, :], label1d_t1s[:, 1, :], vmasks, configs.loss.t1_temperature)
         loss_student_t1 = torch.mean(calculate_adapt_cof(label1d_t1s, label1ds) * loss_student_t1)
         loss += loss_student_t1 * configs.loss.t1_cof
 
         label1d_t2s = data['label1d_t2s']
-        loss_student_t2 = lossfun_softloc(slogits, elogits, label1d_t2s[:, 0, :], label1d_t2s[:, 1, :], vmasks, configs.loss.t2_emperature)
+        loss_student_t2 = lossfun_softloc(slogits, elogits, label1d_t2s[:, 0, :], label1d_t2s[:, 1, :], vmasks, configs.loss.t2_temperature)
         loss_student_t2 = torch.mean(calculate_adapt_cof(label1d_t2s, label1ds) * loss_student_t2)
         loss += loss_student_t2 * configs.loss.t2_cof
 
