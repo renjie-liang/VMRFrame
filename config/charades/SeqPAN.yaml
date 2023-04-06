@@ -31,7 +31,7 @@
   "model": {
     "name": "SeqPAN",
     "vlen": 64,
-    "tlen": 64,
+    "tlen": 30,
     "vdim": 1024,
     "dim": 128,
     "num_heads": 4,

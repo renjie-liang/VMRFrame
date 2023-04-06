@@ -150,7 +150,7 @@ class BaseDataset(torch.utils.data.Dataset):
     def load_label1d_teach(self, logits_t, index, vid, vlen):
         vid_t, logit = logits_t[index]
         assert vid_t == vid, "{} {}".format(vid_t, vid)
-        logit = F.interpolate(logit.unsqueeze(0), size=vlen, mode='linear').squeeze(0)
+        logit = F.interpolate(logit.unsqueeze(0), size=vlen, mode='linear', align_corners=True).squeeze(0)
         logit = torch.nn.functional.pad(logit, (0, self.max_vlen-logit.shape[1]), mode='constant', value=0)
         return logit
 
